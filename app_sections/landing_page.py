@@ -4,7 +4,7 @@ import os
 import streamlit as st
 
 
-def get_gemini_api_key_from_context() -> str:
+def get_gemini_api_key_from_context() -\u003e str:
     candidates = [
         st.session_state.get("gemini_api_key"),
         os.environ.get("GEMINI_API_KEY"),
@@ -17,7 +17,7 @@ def get_gemini_api_key_from_context() -> str:
     return ""
 
 
-def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -> str:
+def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -\u003e str:
     candidate = (
         st.session_state.get("gemini_model_name")
         or os.environ.get("GEMINI_MODEL")
@@ -26,7 +26,7 @@ def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -> str:
     return candidate.strip()
 
 
-def render_api_settings_panel() -> None:
+def render_api_settings_panel() -\u003e None:
     with st.sidebar:
         st.markdown("### ⚙️ Configuración de Gemini")
         st.caption(
@@ -61,10 +61,48 @@ def render_api_settings_panel() -> None:
                 st.warning("Introduce una API key válida antes de guardar.")
 
 
-def apply_global_styles() -> None:
+def render_sidebar_navigation() -\u003e None:
+    """
+    Renderiza un menú de navegación permanente en el sidebar con acceso directo a todas las funcionalidades.
+    """
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 🧭 Navegación Rápida")
+        st.caption("Acceso directo a todas las funcionalidades")
+        
+        # Obtener la vista actual
+        current_view = st.session_state.get("app_view", "landing")
+        
+        # Definir las opciones de navegación (mismas que en landing page)
+        nav_options = [
+            {"icon": "🏠", "label": "Inicio", "view": "landing"},
+            {"icon": "📂", "label": "Archivo CSV", "view": "csv"},
+            {"icon": "🧰", "label": "Herramientas", "view": "tools"},
+            {"icon": "🧠", "label": "Semantic Keyword", "view": "keywords"},
+            {"icon": "🔗", "label": "Laboratorio Enlazado", "view": "linking"},
+            {"icon": "📊", "label": "Informe Posiciones", "view": "positions"},
+        ]
+        
+        # Crear botones de navegación
+        for option in nav_options:
+            # Marcar el botón actual con un estilo diferente
+            is_current = current_view == option["view"]
+            button_label = f"{option['icon']} **{option['label']}**" if is_current else f"{option['icon']} {option['label']}"
+            
+            if st.button(
+                button_label,
+                key=f"nav_{option['view']}",
+                use_container_width=True,
+                type="primary" if is_current else "secondary"
+            ):
+                if option["view"] != current_view:
+                    set_app_view(option["view"])
+
+
+def apply_global_styles() -\u003e None:
     st.markdown(
         """
-        <style>
+        \u003cstyle\u003e
         :root {
             --bg-primary: #0f111a;
             --bg-secondary: #16192a;
@@ -158,7 +196,7 @@ def apply_global_styles() -> None:
             border-color: var(--accent) !important;
             color: #fff !important;
         }
-        </style>
+        \u003c/style\u003e
         """,
         unsafe_allow_html=True,
     )
@@ -171,7 +209,7 @@ def bordered_container():
         return st.container()
 
 
-def set_app_view(view: str) -> None:
+def set_app_view(view: str) -\u003e None:
     st.session_state["app_view"] = view
     if hasattr(st, "rerun"):
         st.rerun()
@@ -179,18 +217,18 @@ def set_app_view(view: str) -> None:
         st.experimental_rerun()
 
 
-def render_back_to_landing() -> None:
+def render_back_to_landing() -\u003e None:
     with st.container():
         st.markdown("")
         back_key = f"back_to_landing_{st.session_state.get('app_view', 'landing')}"
         with st.container():
-            st.markdown('<div class="back-link">', unsafe_allow_html=True)
+            st.markdown('\u003cdiv class="back-link"\u003e', unsafe_allow_html=True)
             if st.button("⬅️ Volver a selección", key=back_key):
                 set_app_view("landing")
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("\u003c/div\u003e", unsafe_allow_html=True)
 
 
-def render_landing_view() -> None:
+def render_landing_view() -\u003e None:
     st.subheader("Selección de funcionalidad")
     st.caption(
         "Escoge si quieres cargar un dataset, usar herramientas rápidas, el builder semántico o el nuevo laboratorio de enlazado."
@@ -252,18 +290,18 @@ def render_landing_view() -> None:
             card_class = "primary" if card["style"] == "primary" else "secondary"
             st.markdown(
                 f"""
-                <div class="action-card {card_class}">
-                    <div class="icon">{card['icon']}</div>
-                    <h4>{card['title']}</h4>
-                    <p>{card['body']}</p>
-                </div>
+                \u003cdiv class="action-card {card_class}"\u003e
+                    \u003cdiv class="icon"\u003e{card['icon']}\u003c/div\u003e
+                    \u003ch4\u003e{card['title']}\u003c/h4\u003e
+                    \u003cp\u003e{card['body']}\u003c/p\u003e
+                \u003c/div\u003e
                 """,
                 unsafe_allow_html=True,
             )
-            st.markdown('<div class="cta-button">', unsafe_allow_html=True)
+            st.markdown('\u003cdiv class="cta-button"\u003e', unsafe_allow_html=True)
             if st.button(card["button"], key=card["key"]):
                 set_app_view(card["view"])
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("\u003c/div\u003e", unsafe_allow_html=True)
 
 
 __all__ = [
@@ -274,5 +312,6 @@ __all__ = [
     "render_api_settings_panel",
     "render_back_to_landing",
     "render_landing_view",
+    "render_sidebar_navigation",  # ← Nueva función
     "set_app_view",
 ]

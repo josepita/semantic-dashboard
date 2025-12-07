@@ -5799,6 +5799,7 @@ def main():
         st.session_state["app_view"] = "landing"
 
     render_api_settings_panel()
+    render_sidebar_navigation()  # ← Nueva línea: menú de navegación permanente
 
     app_view = st.session_state["app_view"]
 
