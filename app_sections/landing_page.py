@@ -4,7 +4,7 @@ import os
 import streamlit as st
 
 
-def get_gemini_api_key_from_context() -\u003e str:
+def get_gemini_api_key_from_context() -> str:
     candidates = [
         st.session_state.get("gemini_api_key"),
         os.environ.get("GEMINI_API_KEY"),
@@ -17,7 +17,7 @@ def get_gemini_api_key_from_context() -\u003e str:
     return ""
 
 
-def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -\u003e str:
+def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -> str:
     candidate = (
         st.session_state.get("gemini_model_name")
         or os.environ.get("GEMINI_MODEL")
@@ -26,7 +26,7 @@ def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -\u003e str
     return candidate.strip()
 
 
-def render_api_settings_panel() -\u003e None:
+def render_api_settings_panel() -> None:
     with st.sidebar:
         st.markdown("### ⚙️ Configuración de Gemini")
         st.caption(
@@ -61,7 +61,7 @@ def render_api_settings_panel() -\u003e None:
                 st.warning("Introduce una API key válida antes de guardar.")
 
 
-def render_sidebar_navigation() -\u003e None:
+def render_sidebar_navigation() -> None:
     """
     Renderiza un menú de navegación permanente en el sidebar con acceso directo a todas las funcionalidades.
     """
@@ -81,6 +81,7 @@ def render_sidebar_navigation() -\u003e None:
             {"icon": "🧠", "label": "Semantic Keyword", "view": "keywords"},
             {"icon": "🔗", "label": "Laboratorio Enlazado", "view": "linking"},
             {"icon": "📊", "label": "Informe Posiciones", "view": "positions"},
+            {"icon": "🛰️", "label": "Logs Googlebot", "view": "logs"},
         ]
         
         # Crear botones de navegación
@@ -99,10 +100,10 @@ def render_sidebar_navigation() -\u003e None:
                     set_app_view(option["view"])
 
 
-def apply_global_styles() -\u003e None:
+def apply_global_styles() -> None:
     st.markdown(
         """
-        \u003cstyle\u003e
+        <style>
         :root {
             --bg-primary: #0f111a;
             --bg-secondary: #16192a;
@@ -196,7 +197,7 @@ def apply_global_styles() -\u003e None:
             border-color: var(--accent) !important;
             color: #fff !important;
         }
-        \u003c/style\u003e
+        </style>
         """,
         unsafe_allow_html=True,
     )
@@ -209,7 +210,7 @@ def bordered_container():
         return st.container()
 
 
-def set_app_view(view: str) -\u003e None:
+def set_app_view(view: str) -> None:
     st.session_state["app_view"] = view
     if hasattr(st, "rerun"):
         st.rerun()
@@ -217,18 +218,18 @@ def set_app_view(view: str) -\u003e None:
         st.experimental_rerun()
 
 
-def render_back_to_landing() -\u003e None:
+def render_back_to_landing() -> None:
     with st.container():
         st.markdown("")
         back_key = f"back_to_landing_{st.session_state.get('app_view', 'landing')}"
         with st.container():
-            st.markdown('\u003cdiv class="back-link"\u003e', unsafe_allow_html=True)
+            st.markdown('<div class="back-link">', unsafe_allow_html=True)
             if st.button("⬅️ Volver a selección", key=back_key):
                 set_app_view("landing")
-            st.markdown("\u003c/div\u003e", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_landing_view() -\u003e None:
+def render_landing_view() -> None:
     st.subheader("Selección de funcionalidad")
     st.caption(
         "Escoge si quieres cargar un dataset, usar herramientas rápidas, el builder semántico o el nuevo laboratorio de enlazado."
@@ -279,6 +280,15 @@ def render_landing_view() -\u003e None:
             "style": "secondary",
             "key": "cta_positions",
         },
+        {
+            "icon": "🛰️",
+            "title": "Análisis de logs de Googlebot",
+            "body": "Filtra Googlebot real desde tus logs, clasifica URLs y genera tendencias por día y tipo de archivo.",
+            "button": "Ir a Logs Googlebot",
+            "view": "logs",
+            "style": "secondary",
+            "key": "cta_logs",
+        },
     ]
 
     row_cols = None
@@ -290,18 +300,18 @@ def render_landing_view() -\u003e None:
             card_class = "primary" if card["style"] == "primary" else "secondary"
             st.markdown(
                 f"""
-                \u003cdiv class="action-card {card_class}"\u003e
-                    \u003cdiv class="icon"\u003e{card['icon']}\u003c/div\u003e
-                    \u003ch4\u003e{card['title']}\u003c/h4\u003e
-                    \u003cp\u003e{card['body']}\u003c/p\u003e
-                \u003c/div\u003e
+                <div class="action-card {card_class}">
+                    <div class="icon">{card['icon']}</div>
+                    <h4>{card['title']}</h4>
+                    <p>{card['body']}</p>
+                </div>
                 """,
                 unsafe_allow_html=True,
             )
-            st.markdown('\u003cdiv class="cta-button"\u003e', unsafe_allow_html=True)
+            st.markdown('<div class="cta-button">', unsafe_allow_html=True)
             if st.button(card["button"], key=card["key"]):
                 set_app_view(card["view"])
-            st.markdown("\u003c/div\u003e", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 __all__ = [

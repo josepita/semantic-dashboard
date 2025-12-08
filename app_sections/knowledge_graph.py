@@ -4,10 +4,14 @@ from collections import Counter
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 import networkx as nx
+import numpy as np
 import pandas as pd
 import streamlit as st
 from pyvis.network import Network
 
+from app_sections.entity_filters import is_valid_entity, normalize_entity_text
+from app_sections.semantic_depth import analyze_document_sds
+from app_sections.semantic_tools import get_sentence_transformer
 from app_sections.spacy_support import (
     SUPPORTED_COREF_LANGS,
     ensure_coreferee_module,
@@ -179,13 +183,21 @@ def generate_knowledge_graph_html_v2(
     batch_size: int = 200,
     manual_entities: Optional[Sequence[str]] = None,
     blacklist_entities: Optional[Sequence[str]] = None,
-) -> Tuple[str, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> Tuple[str, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Genera un grafo de conocimiento interactivo a partir de texto con spaCy.
-    
+
     Args:
         manual_entities: Lista de entidades que deben recibir boost de prominence (whitelist)
         blacklist_entities: Lista de entidades a excluir del análisis (blacklist)
+
+    Returns:
+        Tupla con:
+        - HTML del grafo de conocimiento
+        - DataFrame de entidades
+        - DataFrame de relaciones documento-entidad
+        - DataFrame de relaciones SPO (Subject-Predicate-Object)
+        - DataFrame de Semantic Depth Score por documento
     """
     nlp = load_spacy_model(model_name)
     add_optional_nlp_components(nlp, enable_coref=enable_coref, enable_linking=enable_linking)
@@ -235,9 +247,21 @@ def generate_knowledge_graph_html_v2(
     spo_rows: List[Dict[str, object]] = []
     spo_edge_counter: Counter = Counter()
 
+    # Preparar modelo de embeddings para cálculo de cohesión vectorial (SDS)
+    try:
+        embedding_model = get_sentence_transformer()
+    except Exception:
+        embedding_model = None
+
+    # Almacenar datos por documento para calcular SDS
+    doc_sds_data: Dict[str, Dict[str, object]] = {}
+
     for doc, source_url in zip(docs_iterator, doc_urls):
         coref_map = build_coref_map(doc) if enable_coref else {}
         token_entity_map: Dict[int, str] = {}
+
+        # Almacenar entidades del documento para SDS
+        doc_entities_list = []
 
         for ent in doc.ents:
             ent_text = ent.text.strip()
@@ -250,7 +274,21 @@ def generate_knowledge_graph_html_v2(
             canonical_text = canonical_span.text.strip() or ent_text
             if not canonical_text:
                 continue
-            
+
+            # Normalizar texto de entidad (eliminar comillas, puntuación final, etc.)
+            canonical_text = normalize_entity_text(canonical_text)
+            if not canonical_text:
+                continue
+
+            # Aplicar filtros de calidad para eliminar ruido
+            if not is_valid_entity(
+                text=canonical_text,
+                entity_type=ent.label_,
+                min_length=2,
+                allow_common_names=False
+            ):
+                continue  # Skip entidad ruidosa
+
             # Aplicar blacklist
             entity_lower = canonical_text.lower()
             if blacklist_lower and any(black in entity_lower for black in blacklist_lower):
@@ -298,6 +336,40 @@ def generate_knowledge_graph_html_v2(
 
             for token in ent:
                 token_entity_map[token.i] = entity_id
+
+            # Almacenar información de entidad para cálculo de SDS
+            doc_entities_list.append({
+                "text": canonical_text,
+                "label": ent.label_,
+                "start": ent.start_char,
+                "end": ent.end_char,
+            })
+
+        # Calcular SDS para este documento
+        doc_text = doc.text
+        doc_sds_result = None
+
+        if doc_entities_list and embedding_model is not None:
+            try:
+                # Generar embeddings de frases para cohesión vectorial
+                sentences = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
+                if sentences:
+                    embeddings = embedding_model.encode(sentences, convert_to_numpy=True)
+
+                    # Calcular SDS
+                    doc_sds_result = analyze_document_sds(
+                        text=doc_text,
+                        entities=doc_entities_list,
+                        embeddings=embeddings,
+                        w_er=0.5,
+                        w_cv=0.5
+                    )
+
+                    # Almacenar resultado
+                    doc_sds_data[source_url] = doc_sds_result
+            except Exception:
+                # Si falla el cálculo de SDS, continuar sin él
+                pass
 
         triplets = extract_spo_relations(doc, token_entity_map, source_url)
         for triplet in triplets:
@@ -471,7 +543,22 @@ def generate_knowledge_graph_html_v2(
 
     spo_df = pd.DataFrame(spo_rows)
 
-    return net.generate_html(notebook=False), entities_df, doc_relations_df, spo_df
+    # Crear DataFrame con resultados de SDS por documento
+    sds_rows = []
+    for url, sds_result in doc_sds_data.items():
+        sds_rows.append({
+            "URL": url,
+            "SDS (Semantic Depth Score)": sds_result.get("sds", 0.0),
+            "Clasificación": sds_result.get("classification", "N/A"),
+            "Score ER (Entity Relevance)": sds_result.get("score_er", 0.0),
+            "Score CV (Vector Cohesion)": sds_result.get("score_cv", 0.0),
+            "Densidad de Entidades": sds_result.get("entity_density", 0.0),
+            "Número de Entidades": sds_result.get("entity_count", 0),
+            "Cohesión Vectorial": sds_result.get("cohesion_raw", 0.0),
+        })
+    sds_df = pd.DataFrame(sds_rows).sort_values("SDS (Semantic Depth Score)", ascending=False) if sds_rows else pd.DataFrame()
+
+    return net.generate_html(notebook=False), entities_df, doc_relations_df, spo_df, sds_df
 
 
 def build_entity_payload_from_doc_relations(doc_relations_df: Optional[pd.DataFrame]) -> Dict[str, Dict[str, float]]:
