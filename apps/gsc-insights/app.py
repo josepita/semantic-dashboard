@@ -1,141 +1,146 @@
 """
-GSC Insights - Google Search Console Analyzer
-==============================================
+GSC Insights & Reporting
+========================
 
-Herramienta especializada para análisis de datos de Google Search Console
-con insights generados por Gemini AI.
+Herramienta especializada para análisis de posiciones SEO con datos de
+rank tracking y análisis competitivo avanzado.
 
 Funcionalidades:
-- Importación de datos GSC (CSV o API)
-- Análisis automático con Gemini AI
-- Detección de quick wins
-- Identificación de cannibalization
-- Monitoring de tendencias
-- Reportes automatizados
+- Importación de datos de rank tracking
+- Análisis competitivo por familias de keywords
+- Generación de informes HTML con gráficos
+- Agrupación inteligente de keywords
+- Insights con Gemini AI
 
 Autor: Embedding Insights
 Versión: 1.0.0
 """
 
 import streamlit as st
-import os
+import sys
+from pathlib import Path
+
+# Añadir paths al sistema
+current_dir = Path(__file__).parent
+shared_path = current_dir.parent.parent / "shared"
+modules_path = current_dir / "modules"
+
+sys.path.insert(0, str(shared_path))
+sys.path.insert(0, str(modules_path))
+
+# Importar módulos
+from modules.positions_report import render_positions_report
 
 st.set_page_config(
-    page_title="GSC Insights",
+    page_title="GSC Insights & Reporting",
     layout="wide",
     page_icon="📊",
 )
 
 
+def apply_global_styles():
+    """Aplicar estilos globales."""
+    st.markdown("""
+    <style>
+    .main {
+        padding: 1rem;
+    }
+    .stButton button {
+        width: 100%;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 def main():
     """Main application entry point."""
+    apply_global_styles()
 
     # Título y descripción
-    st.title("📊 GSC Insights")
+    st.title("📊 GSC Insights & Reporting")
     st.markdown(
-        "Analiza datos de Google Search Console con Gemini AI para "
-        "obtener insights accionables y detectar oportunidades."
+        "Genera informes avanzados de posiciones SEO con análisis competitivo "
+        "y agrupación inteligente de keywords."
     )
 
     # Sidebar - Navegación
     with st.sidebar:
-        st.header("🧭 Herramientas")
+        st.header("🧭 Navegación")
 
         tool = st.radio(
             "Selecciona una herramienta:",
             options=[
                 "🏠 Inicio",
-                "📂 Cargar Datos GSC",
-                "🤖 Análisis con Gemini AI",
-                "🎯 Quick Wins",
-                "⚠️ Cannibalization",
-                "📈 Tendencias",
-                "📄 Reportes",
+                "📈 Informe de Posiciones",
             ],
             key="tool_selector"
         )
 
-        # Configuración de API
         st.markdown("---")
-        st.markdown("### ⚙️ Configuración")
-
-        api_key = st.text_input(
-            "Gemini API Key",
-            type="password",
-            help="Obtén tu clave en https://aistudio.google.com/app/apikey"
-        )
-
-        if api_key:
-            os.environ["GEMINI_API_KEY"] = api_key
-            st.success("✅ API key configurada")
+        st.markdown("### ℹ️ Acerca de")
+        st.caption("GSC Insights & Reporting v1.0.0")
+        st.caption("Parte de Embedding Insights Suite")
 
     # Renderizar herramienta seleccionada
     if tool == "🏠 Inicio":
         render_home()
-    elif tool == "📂 Cargar Datos GSC":
-        render_upload_gsc()
-    elif tool == "🤖 Análisis con Gemini AI":
-        render_ai_analysis()
-    elif tool == "🎯 Quick Wins":
-        render_quick_wins()
-    elif tool == "⚠️ Cannibalization":
-        render_cannibalization()
-    elif tool == "📈 Tendencias":
-        render_trends()
-    elif tool == "📄 Reportes":
-        render_reports()
+    elif tool == "📈 Informe de Posiciones":
+        render_positions_report()
 
 
 def render_home():
     """Renderiza la página de inicio."""
-    st.header("👋 Bienvenido a GSC Insights")
+    st.header("👋 Bienvenido a GSC Insights & Reporting")
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.markdown("### 🎯 ¿Qué puedes hacer?")
         st.markdown("""
-        **Análisis Automático:**
-        - ✅ Importar datos de Google Search Console
-        - ✅ Análisis con Gemini AI
-        - ✅ Identificación automática de oportunidades
-        - ✅ Priorización de acciones
+        **Análisis de Posiciones:**
+        - ✅ Importar datos de rank tracking
+        - ✅ Análisis competitivo automático
+        - ✅ Agrupación de keywords por familias
+        - ✅ Generación de informes HTML
 
-        **Quick Wins:**
-        - ✅ Keywords en posiciones 4-10 (página 1)
-        - ✅ Alto CTR pero baja posición
-        - ✅ Queries con potencial de mejora
-        - ✅ Páginas infrautilizadas
+        **Insights Avanzados:**
+        - ✅ Heatmaps de presencia competitiva
+        - ✅ Gráficos radar por familia
+        - ✅ Análisis de volumen de búsqueda
+        - ✅ Recomendaciones con Gemini AI
 
-        **Problemas:**
-        - ✅ Detección de cannibalization
-        - ✅ Keywords en declive
-        - ✅ Páginas perdiendo tráfico
-        - ✅ Anomalías en CTR
+        **Exportación:**
+        - ✅ Informes HTML interactivos
+        - ✅ Datos en Excel
+        - ✅ Gráficos descargables
+        - ✅ Análisis por competidor
         """)
 
     with col2:
         st.markdown("### 🚀 Quick Start")
         st.markdown("""
-        **1. Exportar Datos GSC**
-        - Ve a Google Search Console
-        - Performance → Export
-        - Descarga CSV (últimos 3-6 meses)
+        **1. Preparar Datos**
+        - Exporta rank tracking desde tu herramienta SEO
+        - Formato CSV con columnas: keyword, position, URL
+        - Opcional: volumen de búsqueda, fecha
 
-        **2. Cargar en App**
-        - Sube CSV en "📂 Cargar Datos GSC"
-        - Espera procesamiento automático
-        - Ve dashboard general
+        **2. Cargar y Configurar**
+        - Ve a "📈 Informe de Posiciones"
+        - Sube CSV de rank tracking
+        - Define tu dominio principal
+        - Opcional: Agrega familias de keywords
 
-        **3. Análisis IA**
-        - Configura Gemini API key en sidebar
-        - Ve a "🤖 Análisis con Gemini AI"
-        - Obtén insights automáticos
+        **3. Generar Informe**
+        - Selecciona tipos de gráficos
+        - Configura Gemini API (opcional)
+        - Genera informe HTML
+        - Descarga y comparte
 
-        **4. Actuar sobre Quick Wins**
-        - Ve a "🎯 Quick Wins"
-        - Prioriza por impacto
-        - Exporta plan de acción
+        **4. Análisis Avanzado**
+        - Revisa competidores principales
+        - Identifica oportunidades por familia
+        - Exporta datos para optimización
+        - Implementa mejoras
         """)
 
     # Estadísticas
@@ -145,150 +150,142 @@ def render_home():
     col_tech1, col_tech2, col_tech3, col_tech4 = st.columns(4)
 
     with col_tech1:
-        st.metric("IA", "Gemini 2.5", help="Análisis automático")
+        st.metric("IA", "Gemini 2.0", help="Análisis automático")
     with col_tech2:
-        st.metric("Fuente", "GSC", help="Google Search Console")
+        st.metric("Formatos", "CSV/Excel", help="Import/Export")
     with col_tech3:
-        st.metric("Formato", "CSV/API", help="Import flexible")
+        st.metric("Gráficos", "Interactivos", help="HTML embebido")
     with col_tech4:
-        st.metric("Export", "Excel/PDF", help="Reportes")
+        st.metric("Familias", "Auto", help="Agrupación automática")
 
-    # Tips
-    with st.expander("💡 Tips de Uso"):
+    # Características destacadas
+    st.markdown("---")
+    st.markdown("### ✨ Características Destacadas")
+
+    col_feat1, col_feat2, col_feat3 = st.columns(3)
+
+    with col_feat1:
+        st.markdown("#### 📈 Análisis de Posiciones")
         st.markdown("""
-        - **Datos:** Exporta al menos 3 meses para tendencias
-        - **Filtros:** Filtra por página, query o país
-        - **Quick Wins:** Prioriza posiciones 4-7 (fácil subir a top 3)
-        - **Cannibalization:** Resuelve antes de crear contenido nuevo
-        - **Reportes:** Programa análisis mensuales
+        - Carga CSV de rank tracking
+        - Detección automática de dominios
+        - Normalización de URLs
+        - Vista por keyword y por URL
         """)
 
+    with col_feat2:
+        st.markdown("#### 🎯 Familias de Keywords")
+        st.markdown("""
+        - **Agrupación automática** ⭐
+        - Definición manual o CSV
+        - Análisis por familia
+        - Volumen agregado
+        """)
 
-def render_upload_gsc():
-    """Renderiza carga de datos GSC."""
-    st.header("📂 Cargar Datos GSC")
+    with col_feat3:
+        st.markdown("#### 📊 Informes HTML")
+        st.markdown("""
+        - Gráficos interactivos
+        - Heatmaps competitivos
+        - Análisis con Gemini AI
+        - Descarga y compartir
+        """)
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Cómo exportar de GSC:**
+    # Tips de uso
+    st.markdown("---")
+    with st.expander("💡 Tips de Uso", expanded=False):
+        st.markdown("""
+        **Preparación de Datos:**
+        - Exporta al menos 100 keywords para mejores insights
+        - Incluye volumen de búsqueda si es posible
+        - Mantén formato consistente en URLs
 
-    1. Ve a [Google Search Console](https://search.google.com/search-console)
-    2. Selecciona tu propiedad
-    3. Performance → Export (arriba derecha)
-    4. Descarga CSV
+        **Familias de Keywords:**
+        - Define 5-10 familias principales
+        - Usa clustering automático con embeddings
+        - Revisa y ajusta manualmente
 
-    **Columnas requeridas:**
-    - `query`: Keyword de búsqueda
-    - `page`: URL de la página
-    - `clicks`: Número de clicks
-    - `impressions`: Número de impresiones
-    - `ctr`: Click-through rate
-    - `position`: Posición media
-    - `date`: Fecha (opcional, para tendencias)
-    """)
+        **Análisis Competitivo:**
+        - Identifica competidores recurrentes
+        - Analiza por familia, no general
+        - Busca gaps de contenido
 
+        **Gemini AI:**
+        - Obtén API key gratis en Google AI Studio
+        - Usa para insights automáticos
+        - Revisa recomendaciones antes de implementar
 
-def render_ai_analysis():
-    """Renderiza análisis con Gemini AI."""
-    st.header("🤖 Análisis con Gemini AI")
+        **Exportación:**
+        - Genera HTML para presentaciones
+        - Exporta Excel para análisis detallado
+        - Comparte con equipo técnico
+        """)
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Análisis automático incluye:**
+    # Casos de uso
+    st.markdown("---")
+    st.markdown("### 🎯 Casos de Uso")
 
-    - 🎯 **Quick Wins:** Keywords fáciles de optimizar
-    - ⚠️ **Problemas:** Cannibalization, declives
-    - 📈 **Tendencias:** Evolución de métricas
-    - 💡 **Recomendaciones:** Acciones priorizadas
-    - 📊 **Resumen ejecutivo:** Para stakeholders
+    tab1, tab2, tab3 = st.tabs(["SEO Manager", "Content Strategist", "Agency"])
 
-    **Tipos de insights:**
-    - Análisis de CTR anómalo
-    - Detección de intención de búsqueda
-    - Sugerencias de optimización on-page
-    - Identificación de topic clusters
-    """)
+    with tab1:
+        st.markdown("""
+        **Para SEO Managers:**
 
+        1. **Monitoreo Mensual**
+           - Sube datos de rank tracker
+           - Genera informe HTML
+           - Presenta a stakeholders
 
-def render_quick_wins():
-    """Renderiza Quick Wins."""
-    st.header("🎯 Quick Wins")
+        2. **Análisis Competitivo**
+           - Identifica competidores por familia
+           - Analiza gaps de contenido
+           - Planifica estrategia
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Criterios de Quick Win:**
+        3. **Priorización**
+           - Revisa quick wins (posiciones 4-10)
+           - Identifica keywords de alto volumen
+           - Crea plan de acción
+        """)
 
-    1. **Posición 4-10** (página 1, cerca del top)
-    2. **Alto volumen de impresiones** (potencial grande)
-    3. **CTR por debajo de media** (margen de mejora)
-    4. **Tendencia estable o creciente**
+    with tab2:
+        st.markdown("""
+        **Para Content Strategists:**
 
-    **Acciones recomendadas:**
-    - Optimizar title y meta description
-    - Mejorar featured snippets
-    - Añadir schema markup
-    - Aumentar enlaces internos
-    """)
+        1. **Planificación de Contenido**
+           - Analiza familias de keywords
+           - Identifica temas sin cubrir
+           - Crea calendario editorial
 
+        2. **Optimización Existente**
+           - Detecta contenido infraoptimizado
+           - Revisa competencia por tema
+           - Actualiza contenido
 
-def render_cannibalization():
-    """Renderiza detección de cannibalization."""
-    st.header("⚠️ Detección de Cannibalization")
+        3. **Clustering de Topics**
+           - Agrupa keywords semánticamente
+           - Define pillar pages
+           - Planifica supporting content
+        """)
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Qué detectamos:**
+    with tab3:
+        st.markdown("""
+        **Para Agencias:**
 
-    - Múltiples URLs compitiendo por misma keyword
-    - Distribución de posiciones (fluctuación)
-    - Pérdida de autoridad por fragmentación
+        1. **Reportes Cliente**
+           - Genera informes HTML branded
+           - Exporta datos para análisis
+           - Presenta evolución mensual
 
-    **Soluciones:**
-    - Consolidar contenido en una URL
-    - 301 redirects de páginas duplicadas
-    - Canonical tags apropiados
-    - Optimizar enlazado interno
-    """)
+        2. **Análisis Multi-Cliente**
+           - Compara rendimiento
+           - Identifica best practices
+           - Escala estrategias exitosas
 
-
-def render_trends():
-    """Renderiza análisis de tendencias."""
-    st.header("📈 Análisis de Tendencias")
-
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Métricas monitoreadas:**
-
-    - Evolución de posiciones
-    - Cambios en CTR
-    - Variación de impresiones
-    - Estacionalidad
-
-    **Visualizaciones:**
-    - Gráficos de línea temporal
-    - Heatmaps por día de semana
-    - Comparativa mes a mes
-    """)
-
-
-def render_reports():
-    """Renderiza generación de reportes."""
-    st.header("📄 Generación de Reportes")
-
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Tipos de reporte:**
-
-    - **Ejecutivo:** Resumen de alto nivel
-    - **Técnico:** Detalles y datos
-    - **Quick Wins:** Oportunidades priorizadas
-    - **Problemas:** Issues a resolver
-
-    **Formatos:**
-    - Excel (datos tabulares)
-    - PDF (presentación)
-    - PowerPoint (opcional)
-    """)
+        3. **Automatización**
+           - Integra con rank trackers
+           - Programa generación mensual
+           - Entrega automática
+        """)
 
 
 if __name__ == "__main__":
