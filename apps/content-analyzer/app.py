@@ -19,12 +19,18 @@ import streamlit as st
 import sys
 from pathlib import Path
 
-# Añadir shared library al path
-shared_path = Path(__file__).parent.parent.parent / "shared"
-sys.path.insert(0, str(shared_path))
+# Añadir paths al sistema
+current_dir = Path(__file__).parent
+shared_path = current_dir.parent.parent / "shared"
+modules_path = current_dir / "modules"
 
-# Importar módulos compartidos (comentado temporalmente - app en desarrollo)
-# from entity_filters import clean_entities_advanced, lemmatize_text
+sys.path.insert(0, str(shared_path))
+sys.path.insert(0, str(modules_path))
+
+# Importar módulos
+from modules.semantic_tools import render_semantic_toolkit_section
+from modules.keyword_builder import render_semantic_keyword_builder
+from modules.semantic_relations import render_semantic_relations
 
 st.set_page_config(
     page_title="SEO Content Analyzer",
@@ -33,8 +39,23 @@ st.set_page_config(
 )
 
 
+def apply_global_styles():
+    """Aplicar estilos globales."""
+    st.markdown("""
+    <style>
+    .main {
+        padding: 1rem;
+    }
+    .stButton button {
+        width: 100%;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 def main():
     """Main application entry point."""
+    apply_global_styles()
 
     # Título y descripción
     st.title("🎯 SEO Content Analyzer")
@@ -45,32 +66,31 @@ def main():
 
     # Sidebar - Navegación
     with st.sidebar:
-        st.header("🧭 Herramientas")
+        st.header("🧭 Navegación")
 
         tool = st.radio(
             "Selecciona una herramienta:",
             options=[
                 "🏠 Inicio",
-                "📝 Texto vs Keywords",
-                "❓ FAQs vs Keywords",
-                "🔍 Análisis de Competidores",
+                "🧰 Herramientas Semánticas",
                 "🧠 Semantic Keyword Builder",
                 "🔗 Relaciones Semánticas",
             ],
             key="tool_selector"
         )
 
+        st.markdown("---")
+        st.markdown("### ℹ️ Acerca de")
+        st.caption("SEO Content Analyzer v1.0.0")
+        st.caption("Parte de Embedding Insights Suite")
+
     # Renderizar herramienta seleccionada
     if tool == "🏠 Inicio":
         render_home()
-    elif tool == "📝 Texto vs Keywords":
-        render_text_analysis()
-    elif tool == "❓ FAQs vs Keywords":
-        render_faq_analysis()
-    elif tool == "🔍 Análisis de Competidores":
-        render_competitor_analysis()
+    elif tool == "🧰 Herramientas Semánticas":
+        render_semantic_toolkit_section()
     elif tool == "🧠 Semantic Keyword Builder":
-        render_keyword_builder()
+        render_semantic_keyword_builder()
     elif tool == "🔗 Relaciones Semánticas":
         render_semantic_relations()
 
@@ -103,20 +123,23 @@ def render_home():
     with col2:
         st.markdown("### 🚀 Quick Start")
         st.markdown("""
-        **1. Texto vs Keywords**
-        - Pega tu texto y tus keywords
-        - Obtén score de relevancia semántica
-        - Exporta resultados a Excel
+        **1. Herramientas Semánticas**
+        - Ve a "🧰 Herramientas Semánticas"
+        - Elige: Texto, FAQs, Competidores o Variantes
+        - Introduce tus datos y keywords
+        - Obtén análisis de relevancia
 
-        **2. FAQs vs Keywords**
-        - Carga Excel con preguntas/respuestas
-        - Analiza relevancia por keyword
-        - Identifica mejores FAQs
-
-        **3. Keyword Builder**
-        - Sube lista de keywords
+        **2. Keyword Builder**
+        - Ve a "🧠 Semantic Keyword Builder"
+        - Sube CSV o pega keywords
         - Obtén agrupación automática
-        - Planifica arquitectura de contenido
+        - Exporta clusters a Excel
+
+        **3. Relaciones Semánticas**
+        - Ve a "🔗 Relaciones Semánticas"
+        - Sube CSV con URLs
+        - Visualiza relaciones
+        - Identifica topic clusters
         """)
 
     # Estadísticas y métricas
@@ -134,85 +157,133 @@ def render_home():
     with col_tech4:
         st.metric("NLP", "spaCy", help="Lemmatización y entidades")
 
-    # Tips
-    with st.expander("💡 Tips de Uso"):
+    # Características destacadas
+    st.markdown("---")
+    st.markdown("### ✨ Características Destacadas")
+
+    col_feat1, col_feat2, col_feat3 = st.columns(3)
+
+    with col_feat1:
+        st.markdown("#### 📝 Análisis de Texto")
         st.markdown("""
-        - **Performance:** Los modelos se cachean automáticamente
-        - **Calidad:** Mayor relevancia = mejor optimización SEO
-        - **FAQs:** Usa Excel para análisis masivos (>50 FAQs)
-        - **Keywords:** Agrupa keywords antes de crear contenido
-        - **Exportar:** Todos los análisis se pueden exportar a Excel
+        - Relevancia semántica en tiempo real
+        - Comparación con múltiples keywords
+        - Scoring de 0-100%
+        - Exportación a Excel
         """)
 
+    with col_feat2:
+        st.markdown("#### ❓ FAQs Inteligentes")
+        st.markdown("""
+        - **Carga de Excel/CSV** ⭐ NUEVO
+        - Selector de columnas
+        - Top N por keyword
+        - Análisis masivo
+        """)
 
-def render_text_analysis():
-    """Renderiza análisis de texto vs keywords."""
-    st.header("📝 Análisis: Texto vs Keywords")
+    with col_feat3:
+        st.markdown("#### 🔍 Competidores")
+        st.markdown("""
+        - Extracción automática de contenido
+        - Análisis de gap
+        - Meta descriptions
+        - Exportación de insights
+        """)
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Funcionalidad:**
-    - Pega cualquier texto (meta description, párrafo, contenido)
-    - Introduce tus keywords target
-    - Obtén score de relevancia semántica
-    - Identifica keywords más relevantes para el texto
-    """)
+    # Tips de uso
+    st.markdown("---")
+    with st.expander("💡 Tips de Uso", expanded=False):
+        st.markdown("""
+        **Performance:**
+        - Los modelos se cachean automáticamente
+        - Primera carga: ~10s, siguientes: instantáneas
 
+        **Calidad:**
+        - Relevancia >70% = Bien optimizado
+        - Relevancia >85% = Excelente
+        - Relevancia <50% = Necesita mejora
 
-def render_faq_analysis():
-    """Renderiza análisis de FAQs vs keywords."""
-    st.header("❓ Análisis: FAQs vs Keywords")
+        **FAQs:**
+        - Usa Excel para análisis masivos (>50 FAQs)
+        - Formato: 2 columnas (pregunta, respuesta)
+        - Soporta CSV, XLSX, XLS
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Funcionalidad:**
-    - Carga Excel con columnas de preguntas y respuestas
-    - Introduce keywords a analizar
-    - Obtén relevancia de cada FAQ
-    - Exporta top FAQs por keyword
-    """)
+        **Keywords:**
+        - Agrupa keywords ANTES de crear contenido
+        - Identifica temas principales primero
+        - Exporta mapeo para planificación
 
+        **Exportar:**
+        - Todos los análisis se pueden exportar
+        - Formato Excel para fácil lectura
+        - Incluye métricas y scores
+        """)
 
-def render_competitor_analysis():
-    """Renderiza análisis de competidores."""
-    st.header("🔍 Análisis de Competidores")
+    # Casos de uso
+    st.markdown("---")
+    st.markdown("### 🎯 Casos de Uso")
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Funcionalidad:**
-    - Introduce URLs de competidores
-    - Extrae contenido automáticamente
-    - Compara con tus keywords target
-    - Detecta gaps de contenido
-    """)
+    tab1, tab2, tab3 = st.tabs(["Content Writer", "SEO Strategist", "Manager"])
 
+    with tab1:
+        st.markdown("""
+        **Para Content Writers:**
 
-def render_keyword_builder():
-    """Renderiza Semantic Keyword Builder."""
-    st.header("🧠 Semantic Keyword Builder")
+        1. **Optimizar Meta Descriptions**
+           - Pega tu meta en "Texto vs Keywords"
+           - Analiza relevancia
+           - Ajusta hasta alcanzar >70%
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Funcionalidad:**
-    - Sube CSV con keywords
-    - Agrupación automática por similitud
-    - Detección de temas principales
-    - Exporta mapeo keyword → cluster
-    """)
+        2. **Validar Contenido**
+           - Analiza párrafos importantes
+           - Verifica relevancia para keywords target
+           - Mejora donde sea necesario
 
+        3. **Crear FAQs**
+           - Analiza FAQs existentes
+           - Identifica gaps de keywords
+           - Crea nuevas FAQs relevantes
+        """)
 
-def render_semantic_relations():
-    """Renderiza análisis de relaciones semánticas."""
-    st.header("🔗 Relaciones Semánticas")
+    with tab2:
+        st.markdown("""
+        **Para SEO Strategists:**
 
-    st.info("⚙️ Módulo en desarrollo - próximamente disponible")
-    st.markdown("""
-    **Funcionalidad:**
-    - Analiza relaciones entre URLs
-    - Visualiza grafos de contenido
-    - Identifica pillar pages
-    - Detecta topic clusters
-    """)
+        1. **Keyword Research**
+           - Usa Keyword Builder para agrupar
+           - Identifica temas principales
+           - Planifica arquitectura de contenido
+
+        2. **Gap Analysis**
+           - Analiza competidores
+           - Detecta keywords que cubren
+           - Crea plan de contenido
+
+        3. **Topic Clusters**
+           - Usa Relaciones Semánticas
+           - Identifica pillar pages
+           - Mapea supporting content
+        """)
+
+    with tab3:
+        st.markdown("""
+        **Para Managers:**
+
+        1. **Reportes de Calidad**
+           - Análisis masivo de FAQs
+           - Exporta scores a Excel
+           - Presenta a stakeholders
+
+        2. **Priorización**
+           - Identifica contenido con bajo score
+           - Prioriza optimizaciones
+           - Trackea mejoras
+
+        3. **Planificación**
+           - Usa clusters de keywords
+           - Planifica calendario editorial
+           - Asigna temas a writers
+        """)
 
 
 if __name__ == "__main__":
