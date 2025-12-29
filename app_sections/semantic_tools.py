@@ -68,6 +68,50 @@ def parse_faq_blocks(raw_text: str) -> List[Tuple[str, str]]:
     return entries
 
 
+def parse_faq_from_excel(uploaded_file, question_col: str, answer_col: str) -> List[Tuple[str, str]]:
+    """
+    Lee un archivo Excel y extrae FAQs de columnas especificadas.
+
+    Args:
+        uploaded_file: Archivo Excel subido por el usuario
+        question_col: Nombre de la columna que contiene las preguntas
+        answer_col: Nombre de la columna que contiene las respuestas
+
+    Returns:
+        Lista de tuplas (pregunta, respuesta)
+    """
+    try:
+        # Leer Excel
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file, engine='openpyxl')
+        elif uploaded_file.name.endswith('.xls'):
+            df = pd.read_excel(uploaded_file, engine='xlrd')
+        else:
+            return []
+
+        # Validar columnas
+        if question_col not in df.columns or answer_col not in df.columns:
+            return []
+
+        # Extraer FAQs (ignorar filas con valores nulos)
+        entries: List[Tuple[str, str]] = []
+        for _, row in df.iterrows():
+            question = str(row[question_col]).strip()
+            answer = str(row[answer_col]).strip()
+
+            # Ignorar filas vacías o con 'nan'
+            if question and answer and question != 'nan' and answer != 'nan':
+                entries.append((question, answer))
+
+        return entries
+
+    except Exception as e:
+        st.error(f"Error al leer el archivo Excel: {e}")
+        return []
+
+
 @st.cache_resource(show_spinner=False)
 def get_sentence_transformer(model_name: str) -> SentenceTransformer:
     return SentenceTransformer(model_name)
@@ -584,60 +628,145 @@ def _render_faq_tab(default_model: str) -> None:
     st.markdown(
         "Analiza un bloque de preguntas frecuentes y obten la relevancia semantica de cada pregunta-respuesta frente a un listado de keywords."
     )
-    st.caption(
-        "Formato recomendado: separa cada FAQ con una linea en blanco. Ejemplo:\n"
-        "Pregunta: ?Cual es el horario?\n"
-        "Respuesta: Nuestro servicio esta disponible 24/7."
+
+    # Selector de método de entrada
+    input_method = st.radio(
+        "Método de entrada de FAQs",
+        options=["📝 Entrada manual", "📁 Cargar archivo Excel/CSV"],
+        horizontal=True,
+        key="faq_input_method"
     )
-    faq_text = st.text_area(
-        "Preguntas frecuentes",
-        height=260,
-        placeholder="Introduce las preguntas frecuentes con su respuesta...",
-        key="faq_text_area",
-    )
+
+    faq_entries = []
+
+    if input_method == "📝 Entrada manual":
+        st.caption(
+            "Formato recomendado: separa cada FAQ con una linea en blanco. Ejemplo:\n"
+            "Pregunta: ¿Cual es el horario?\n"
+            "Respuesta: Nuestro servicio esta disponible 24/7."
+        )
+        faq_text = st.text_area(
+            "Preguntas frecuentes",
+            height=260,
+            placeholder="Introduce las preguntas frecuentes con su respuesta...",
+            key="faq_text_area",
+        )
+        if faq_text.strip():
+            faq_entries = parse_faq_blocks(faq_text)
+
+    else:  # Cargar archivo
+        st.caption("Sube un archivo Excel o CSV con columnas separadas para preguntas y respuestas")
+
+        uploaded_faq_file = st.file_uploader(
+            "Selecciona archivo Excel/CSV",
+            type=['xlsx', 'xls', 'csv'],
+            key="faq_file_uploader",
+            help="El archivo debe tener al menos dos columnas: una para preguntas y otra para respuestas"
+        )
+
+        if uploaded_faq_file is not None:
+            try:
+                # Leer preview del archivo
+                if uploaded_faq_file.name.endswith('.csv'):
+                    df_preview = pd.read_csv(uploaded_faq_file)
+                elif uploaded_faq_file.name.endswith('.xlsx'):
+                    df_preview = pd.read_excel(uploaded_faq_file, engine='openpyxl')
+                elif uploaded_faq_file.name.endswith('.xls'):
+                    df_preview = pd.read_excel(uploaded_faq_file, engine='xlrd')
+                else:
+                    df_preview = None
+
+                if df_preview is not None and not df_preview.empty:
+                    st.success(f"✅ Archivo cargado: {len(df_preview)} filas, {len(df_preview.columns)} columnas")
+
+                    # Mostrar preview
+                    with st.expander("📋 Vista previa del archivo", expanded=False):
+                        st.dataframe(df_preview.head(10), use_container_width=True)
+
+                    # Selección de columnas
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        question_col = st.selectbox(
+                            "Columna de PREGUNTAS",
+                            options=df_preview.columns.tolist(),
+                            key="faq_question_col",
+                            help="Selecciona la columna que contiene las preguntas"
+                        )
+                    with col2:
+                        answer_col = st.selectbox(
+                            "Columna de RESPUESTAS",
+                            options=df_preview.columns.tolist(),
+                            index=min(1, len(df_preview.columns) - 1),  # Por defecto segunda columna
+                            key="faq_answer_col",
+                            help="Selecciona la columna que contiene las respuestas"
+                        )
+
+                    # Validar selección
+                    if question_col == answer_col:
+                        st.warning("⚠️ Las columnas de pregunta y respuesta deben ser diferentes")
+                    else:
+                        # Parsear FAQs
+                        uploaded_faq_file.seek(0)  # Resetear el puntero del archivo
+                        faq_entries = parse_faq_from_excel(uploaded_faq_file, question_col, answer_col)
+
+                        if faq_entries:
+                            st.info(f"📝 {len(faq_entries)} preguntas frecuentes detectadas")
+                        else:
+                            st.warning("No se encontraron FAQs válidas en las columnas seleccionadas")
+
+            except Exception as e:
+                st.error(f"❌ Error al procesar el archivo: {e}")
+
+    # Keywords (común para ambos métodos)
     faq_keywords_raw = st.text_area(
         "Palabras clave (una por linea)",
         height=180,
         key="faq_keywords_area",
     )
-    top_n_faq = st.number_input(
-        "Top N resultados por pregunta",
-        min_value=1,
-        max_value=10,
-        value=3,
-        step=1,
-        key="faq_topn",
-    )
-    model_name_faq = st.text_input(
-        "Modelo de Sentence Transformers",
-        value=default_model,
-        help="El mismo modelo se reutiliza para preguntas y keywords.",
-        key="faq_model_name",
-    )
 
-    if st.button("Calcular relevancia en FAQs", key="faq_button"):
-        faq_entries = parse_faq_blocks(faq_text)
+    # Parámetros comunes
+    col_params1, col_params2 = st.columns(2)
+    with col_params1:
+        top_n_faq = st.number_input(
+            "Top N resultados por pregunta",
+            min_value=1,
+            max_value=10,
+            value=3,
+            step=1,
+            key="faq_topn",
+        )
+    with col_params2:
+        model_name_faq = st.text_input(
+            "Modelo de Sentence Transformers",
+            value=default_model,
+            help="El mismo modelo se reutiliza para preguntas y keywords.",
+            key="faq_model_name",
+        )
+
+    # Botón de cálculo
+    if st.button("Calcular relevancia en FAQs", key="faq_button", type="primary"):
         keywords = parse_line_input(faq_keywords_raw, separators=("\n", ";", ","))
+
         if not faq_entries:
-            st.warning("Introduce al menos una pregunta frecuente con su respuesta.")
+            st.warning("⚠️ Introduce al menos una pregunta frecuente con su respuesta.")
         elif not keywords:
-            st.warning("Introduce al menos una palabra clave.")
+            st.warning("⚠️ Introduce al menos una palabra clave.")
         else:
             model_name_clean = model_name_faq.strip()
             if not model_name_clean:
-                st.warning("Indica un nombre de modelo valido.")
+                st.warning("⚠️ Indica un nombre de modelo valido.")
             else:
                 try:
                     with st.spinner("Calculando relevancia semantica en FAQs..."):
                         model = get_sentence_transformer(model_name_clean)
                         faq_results = compute_faq_keyword_similarity(faq_entries, keywords, model)
                 except Exception as exc:
-                    st.error(f"No se pudo cargar el modelo '{model_name_clean}': {exc}")
+                    st.error(f"❌ No se pudo cargar el modelo '{model_name_clean}': {exc}")
                 else:
                     if faq_results.empty:
                         st.info("No se generaron resultados. Revisa la informacion introducida.")
                     else:
-                        st.success("Calculo completado.")
+                        st.success("✅ Calculo completado.")
                         parsed_df = pd.DataFrame(faq_entries, columns=["Pregunta", "Respuesta"])
                         st.markdown("**Preguntas frecuentes detectadas**")
                         st.dataframe(parsed_df, use_container_width=True)

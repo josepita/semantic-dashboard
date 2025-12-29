@@ -9,7 +9,12 @@ import pandas as pd
 import streamlit as st
 from pyvis.network import Network
 
-from app_sections.entity_filters import is_valid_entity, normalize_entity_text
+from app_sections.entity_filters import (
+    is_valid_entity,
+    normalize_entity_text,
+    clean_entities_advanced,
+    lemmatize_text,
+)
 from app_sections.semantic_depth import analyze_document_sds
 from app_sections.semantic_tools import get_sentence_transformer
 from app_sections.spacy_support import (
