@@ -1417,21 +1417,20 @@ def render_semantic_toolkit_section() -> None:
     """
     st.markdown("### Herramientas de analisis semantico adicionales")
     st.caption("Explora comparativas de texto, FAQs, competidores y URLs enriquecidas sin necesidad de subir un dataset completo.")
-    tab_text, tab_faq, tab_competitors, tab_url_variants, tab_authority, tab_kg = st.tabs(
+    # Note: Authority Gap and KG tabs disabled in standalone app
+    tab_text, tab_faq, tab_competitors, tab_url_variants = st.tabs(
         [
             "Texto vs keywords",
             "FAQs vs keywords",
             "Competidores vs queries",
             "URLs enriquecidas",
-            "Brechas de autoridad",
-            "Consultas KG Manuales",
         ]
     )
 
     default_model = DEFAULT_SENTENCE_MODEL
 
-    with tab_kg:
-        _render_kg_manual_tab()
+    # with tab_kg:
+    #     _render_kg_manual_tab()
 
     with tab_text:
         _render_text_vs_keywords_tab(default_model)
@@ -1445,8 +1444,8 @@ def render_semantic_toolkit_section() -> None:
     with tab_url_variants:
         _render_url_variants_tab(default_model)
 
-    with tab_authority:
-        _render_authority_gaps_tab(default_model)
+    # with tab_authority:
+    #     _render_authority_gaps_tab(default_model)
 
 
 __all__ = [
