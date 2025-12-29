@@ -1,0 +1,10 @@
+{
+  "version": "1.0.0",
+  "created_at": "2025-12-29",
+  "last_project": null,
+  "settings": {
+    "auto_backup": true,
+    "max_embedding_cache_mb": 500,
+    "default_embedding_model": "paraphrase-multilingual-MiniLM-L12-v2"
+  }
+}

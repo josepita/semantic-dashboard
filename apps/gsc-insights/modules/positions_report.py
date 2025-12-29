@@ -3,12 +3,15 @@ Módulo para el informe de posiciones SEO.
 
 Este módulo gestiona la carga, procesamiento y generación de informes HTML
 a partir de datos de rank tracking exportados desde herramientas SEO.
+
+Con soporte para persistencia en DuckDB por proyecto.
 """
 
 import re
 import time
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+from datetime import datetime
 
 import pandas as pd
 import streamlit as st
@@ -18,6 +21,11 @@ try:
     import google.generativeai as genai
 except ImportError:
     genai = None
+
+try:
+    import duckdb
+except ImportError:
+    duckdb = None
 
 from modules.keyword_builder import group_keywords_with_semantic_builder
 from modules.semantic_tools import download_dataframe_button
@@ -1113,6 +1121,172 @@ Genera SOLO el HTML completo, sin explicaciones adicionales.
         raise ValueError(f"Error al generar el informe con Gemini: {e}")
 
 
+def save_gsc_data_to_db(df: pd.DataFrame, db_path: str) -> bool:
+    """
+    Guarda datos de GSC procesados en DuckDB.
+
+    Args:
+        df: DataFrame con columnas Keyword, Position, Domain, URL, SearchVolume (opcional), Familia (opcional)
+        db_path: Ruta a la base de datos DuckDB
+
+    Returns:
+        True si se guardó correctamente, False si hubo error
+    """
+    if duckdb is None:
+        st.warning("DuckDB no está instalado. Los datos no se guardarán.")
+        return False
+
+    try:
+        conn = duckdb.connect(db_path)
+
+        # Preparar DataFrame para insertar
+        df_to_save = df.copy()
+
+        # Asegurar que existan las columnas requeridas
+        required_cols = ["Keyword", "Position"]
+        for col in required_cols:
+            if col not in df_to_save.columns:
+                st.error(f"Columna requerida '{col}' no encontrada en los datos")
+                conn.close()
+                return False
+
+        # Añadir columnas opcionales si no existen
+        if "Domain" not in df_to_save.columns:
+            df_to_save["Domain"] = ""
+        if "URL" not in df_to_save.columns:
+            df_to_save["URL"] = ""
+        if "SearchVolume" not in df_to_save.columns:
+            df_to_save["SearchVolume"] = 0
+
+        # Limpiar tabla existente
+        conn.execute("DELETE FROM gsc_positions")
+
+        # Insertar datos
+        insert_query = """
+        INSERT INTO gsc_positions (keyword, url, position, impressions, clicks, ctr, date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """
+
+        current_date = datetime.now().date()
+
+        for _, row in df_to_save.iterrows():
+            conn.execute(
+                insert_query,
+                (
+                    str(row["Keyword"]),
+                    str(row.get("URL", "")),
+                    float(row["Position"]),
+                    int(row.get("SearchVolume", 0)),  # Usar SearchVolume como impressions
+                    0,  # clicks (no disponible en CSV)
+                    0.0,  # ctr (no disponible en CSV)
+                    current_date
+                )
+            )
+
+        # Guardar familias si existen
+        if "Familia" in df_to_save.columns:
+            families_data = {}
+            for familia in df_to_save["Familia"].unique():
+                if familia and familia != "Sin familia":
+                    keywords = df_to_save[df_to_save["Familia"] == familia]["Keyword"].tolist()
+                    families_data[familia] = keywords
+
+            if families_data:
+                # Limpiar y guardar familias
+                conn.execute("DELETE FROM keyword_families")
+                for familia_name, keywords_list in families_data.items():
+                    import json
+                    conn.execute(
+                        """INSERT INTO keyword_families (family_name, keywords, description)
+                           VALUES (?, ?, ?)""",
+                        (familia_name, json.dumps(keywords_list), "")
+                    )
+
+        conn.close()
+        return True
+
+    except Exception as e:
+        st.error(f"Error al guardar datos en DuckDB: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        return False
+
+
+def load_gsc_data_from_db(db_path: str) -> Optional[pd.DataFrame]:
+    """
+    Carga datos de GSC desde DuckDB.
+
+    Args:
+        db_path: Ruta a la base de datos DuckDB
+
+    Returns:
+        DataFrame con los datos o None si no hay datos o hubo error
+    """
+    if duckdb is None:
+        return None
+
+    try:
+        conn = duckdb.connect(db_path, read_only=True)
+
+        # Cargar datos
+        query = """
+        SELECT
+            keyword as Keyword,
+            url as URL,
+            position as Position,
+            impressions as SearchVolume,
+            date
+        FROM gsc_positions
+        ORDER BY date DESC, keyword
+        """
+
+        df = conn.execute(query).fetch_df()
+
+        if df.empty:
+            conn.close()
+            return None
+
+        # Extraer dominios de URLs
+        df["Domain"] = df["URL"].apply(
+            lambda x: normalize_domain(urlparse(str(x)).netloc) if pd.notna(x) and x else ""
+        )
+
+        # Cargar familias si existen
+        try:
+            families_query = """
+            SELECT family_name, keywords
+            FROM keyword_families
+            """
+            families_df = conn.execute(families_query).fetch_df()
+
+            if not families_df.empty:
+                # Crear mapping de keyword -> familia
+                import json
+                familia_map = {}
+                for _, row in families_df.iterrows():
+                    familia_name = row["family_name"]
+                    keywords_list = json.loads(row["keywords"])
+                    for kw in keywords_list:
+                        familia_map[kw] = familia_name
+
+                # Aplicar familias al DataFrame
+                df["Familia"] = df["Keyword"].apply(
+                    lambda kw: familia_map.get(kw, "Sin familia")
+                )
+            else:
+                df["Familia"] = "Sin familia"
+
+        except Exception:
+            df["Familia"] = "Sin familia"
+
+        conn.close()
+        return df
+
+    except Exception as e:
+        st.warning(f"No se pudieron cargar datos desde DuckDB: {e}")
+        return None
+
+
 def render_positions_report() -> None:
     """
     Renderiza la sección de informe de posiciones SEO en Streamlit.
@@ -1120,6 +1294,8 @@ def render_positions_report() -> None:
     Permite cargar un CSV de rank tracking, procesarlo, agrupar keywords
     en familias (manual o automáticamente con Gemini), y generar un informe
     HTML profesional con visualizaciones y análisis.
+
+    Con soporte para persistencia automática en DuckDB por proyecto.
     """
     from app_sections.landing_page import get_gemini_api_key_from_context, get_gemini_model_from_context
 
@@ -1142,6 +1318,24 @@ def render_positions_report() -> None:
         st.session_state["positions_gemini_key"] = get_gemini_api_key_from_context()
     if "positions_gemini_model" not in st.session_state or not st.session_state["positions_gemini_model"]:
         st.session_state["positions_gemini_model"] = get_gemini_model_from_context()
+
+    # Verificar si hay proyecto seleccionado
+    current_project = st.session_state.get("current_project")
+    project_config = st.session_state.get("project_config")
+
+    # Intentar cargar datos desde DuckDB si hay proyecto
+    if current_project and project_config and duckdb is not None:
+        db_path = project_config.get("db_path")
+        if db_path:
+            # Botón para cargar desde DuckDB
+            if st.button("📊 Cargar datos guardados del proyecto", help="Carga los últimos datos guardados en la base de datos"):
+                with st.spinner("Cargando datos desde DuckDB..."):
+                    loaded_df = load_gsc_data_from_db(db_path)
+                    if loaded_df is not None and not loaded_df.empty:
+                        st.session_state["positions_raw_df"] = loaded_df
+                        st.success(f"✅ Cargados {len(loaded_df)} registros desde la base de datos")
+                    else:
+                        st.info("No hay datos guardados en este proyecto. Sube un CSV para comenzar.")
 
     st.markdown("### 📥 Carga de archivos")
 
@@ -1357,6 +1551,23 @@ def render_positions_report() -> None:
             else:
                 st.session_state["positions_volume_df"] = None
                 st.success(f"Se procesaron {len(parsed_df)} keywords.")
+
+            # Guardar automáticamente en DuckDB si hay proyecto seleccionado
+            if current_project and project_config and duckdb is not None:
+                db_path = project_config.get("db_path")
+                if db_path:
+                    with st.spinner("💾 Guardando datos en la base de datos del proyecto..."):
+                        # Merge con volumen si existe
+                        df_to_save = parsed_df.copy()
+                        if uploaded_volume and st.session_state.get("positions_volume_df") is not None:
+                            volume_df = st.session_state["positions_volume_df"]
+                            df_to_save = df_to_save.merge(volume_df, on="Keyword", how="left")
+                            df_to_save["SearchVolume"] = df_to_save["SearchVolume"].fillna(0).astype(int)
+
+                        if save_gsc_data_to_db(df_to_save, db_path):
+                            st.success("💾 Datos guardados en el proyecto")
+            elif not current_project:
+                st.info("💡 Crea un proyecto para guardar automáticamente los datos")
 
             # Clasificación automática si está habilitada y hay API key
             if st.session_state.get("positions_auto_classify", True) and gemini_api_key.strip():

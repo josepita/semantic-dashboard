@@ -30,6 +30,7 @@ sys.path.insert(0, str(modules_path))
 
 # Importar módulos
 from modules.positions_report import render_positions_report
+from project_manager import get_project_manager
 
 st.set_page_config(
     page_title="GSC Insights & Reporting",
@@ -52,6 +53,89 @@ def apply_global_styles():
     """, unsafe_allow_html=True)
 
 
+def render_project_selector():
+    """Renderiza el selector de proyectos en el sidebar."""
+    st.sidebar.header("📁 Proyecto Actual")
+
+    pm = get_project_manager()
+
+    # Inicializar session state
+    if "current_project" not in st.session_state:
+        last_project = pm.get_last_project()
+        st.session_state.current_project = last_project
+
+    # Listar proyectos disponibles
+    projects = pm.list_projects()
+    project_names = [p["name"] for p in projects]
+
+    if not projects:
+        st.sidebar.warning("⚠️ No hay proyectos creados")
+        st.session_state.current_project = None
+    else:
+        # Selector de proyecto
+        current_index = 0
+        if st.session_state.current_project:
+            try:
+                current_index = project_names.index(st.session_state.current_project)
+            except ValueError:
+                current_index = 0
+
+        selected_project = st.sidebar.selectbox(
+            "Selecciona un proyecto:",
+            options=project_names,
+            index=current_index,
+            key="project_selector"
+        )
+
+        # Actualizar si cambió
+        if selected_project != st.session_state.current_project:
+            st.session_state.current_project = selected_project
+            pm.set_last_project(selected_project)
+            st.rerun()
+
+        # Cargar configuración del proyecto
+        if st.session_state.current_project:
+            try:
+                project_config = pm.load_project(st.session_state.current_project)
+                st.session_state.project_config = project_config
+
+                # Mostrar info del proyecto
+                st.sidebar.success(f"✅ {project_config['domain']}")
+
+                # Stats del proyecto
+                with st.sidebar.expander("📊 Estadísticas", expanded=False):
+                    stats = pm.get_project_stats(st.session_state.current_project)
+                    st.metric("URLs", stats.get("urls_count", 0))
+                    st.metric("Registros GSC", stats.get("gsc_records", 0))
+                    st.metric("Tamaño", f"{stats.get('size_mb', 0)} MB")
+            except Exception as e:
+                st.sidebar.error(f"Error al cargar proyecto: {e}")
+
+    # Botón para crear nuevo proyecto
+    st.sidebar.markdown("---")
+    with st.sidebar.expander("➕ Crear Nuevo Proyecto", expanded=False):
+        with st.form("new_project_form"):
+            new_name = st.text_input("Nombre del proyecto", placeholder="Mi Cliente SEO")
+            new_domain = st.text_input("Dominio principal", placeholder="ejemplo.com")
+            new_desc = st.text_area("Descripción (opcional)", placeholder="Proyecto de optimización SEO...")
+
+            submit = st.form_submit_button("Crear Proyecto")
+
+            if submit:
+                if not new_name or not new_domain:
+                    st.error("Nombre y dominio son obligatorios")
+                else:
+                    try:
+                        project_path = pm.create_project(new_name, new_domain, new_desc)
+                        safe_name = Path(project_path).name
+                        st.session_state.current_project = safe_name
+                        pm.set_last_project(safe_name)
+                        st.success(f"✅ Proyecto '{new_name}' creado")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+
 def main():
     """Main application entry point."""
     apply_global_styles()
@@ -63,8 +147,12 @@ def main():
         "y agrupación inteligente de keywords."
     )
 
+    # Sidebar - Project Selector
+    render_project_selector()
+
     # Sidebar - Navegación
     with st.sidebar:
+        st.markdown("---")
         st.header("🧭 Navegación")
 
         tool = st.radio(
