@@ -23,8 +23,8 @@ from pathlib import Path
 shared_path = Path(__file__).parent.parent.parent / "shared"
 sys.path.insert(0, str(shared_path))
 
-# Importar módulos compartidos
-from entity_filters import clean_entities_advanced, lemmatize_text
+# Importar módulos compartidos (comentado temporalmente - app en desarrollo)
+# from entity_filters import clean_entities_advanced, lemmatize_text
 
 st.set_page_config(
     page_title="SEO Content Analyzer",

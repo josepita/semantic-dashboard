@@ -25,6 +25,8 @@ from pathlib import Path
 shared_path = Path(__file__).parent.parent.parent / "shared"
 sys.path.insert(0, str(shared_path))
 
+# Nota: Los imports de módulos compartidos se añadirán cuando se migren los módulos completos
+
 st.set_page_config(
     page_title="Internal Linking Optimizer",
     layout="wide",
