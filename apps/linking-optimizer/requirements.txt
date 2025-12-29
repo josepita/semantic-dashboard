@@ -1,0 +1,32 @@
+# Internal Linking Optimizer - Requirements
+# Full-featured version with NLP and graph capabilities
+
+# Core
+streamlit>=1.39.0
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Excel support
+openpyxl>=3.1.0
+
+# Semantic analysis & embeddings
+sentence-transformers>=2.7.0
+
+# NLP & Entity extraction
+spacy>=3.7.0
+
+# Graph & Network analysis
+networkx>=3.1
+pyvis>=0.3.2
+
+# Scientific computing & ML
+scipy>=1.11.0
+scikit-learn>=1.4.0
+
+# Visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.17.0
+
+# Optional performance
+polars>=1.35.2
