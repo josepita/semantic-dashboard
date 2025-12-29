@@ -20,12 +20,13 @@ from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
 from urllib.parse import parse_qs, unquote, urlparse
 
-from app_sections.authority_advance import (
-    AuthorityGapResult,
-    run_authority_gap_from_embeddings,
-    run_authority_gap_simulation,
-)
-from app_sections.google_kg import ensure_google_kg_api_key, query_google_enterprise_kg
+# Note: Authority Gap and Google KG features disabled in standalone app
+# from app_sections.authority_advance import (
+#     AuthorityGapResult,
+#     run_authority_gap_from_embeddings,
+#     run_authority_gap_simulation,
+# )
+# from app_sections.google_kg import ensure_google_kg_api_key, query_google_enterprise_kg
 
 DEFAULT_SENTENCE_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 MAX_COMPETITOR_CONTENT_CHARS = 8000

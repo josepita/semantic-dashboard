@@ -18,11 +18,39 @@ try:
 except ModuleNotFoundError:
     genai = None
 
-from app_sections.landing_page import (
-    bordered_container,
-    get_gemini_api_key_from_context,
-    get_gemini_model_from_context,
-)
+# Gemini API helpers - using inline implementations
+# from app_sections.landing_page import (
+#     bordered_container,
+#     get_gemini_api_key_from_context,
+#     get_gemini_model_from_context,
+# )
+
+def bordered_container():
+    """Simple container replacement."""
+    return st.container()
+
+def get_gemini_api_key_from_context() -> str:
+    """Get Gemini API key from session state or environment."""
+    import os
+    candidates = [
+        st.session_state.get("gemini_api_key"),
+        os.environ.get("GEMINI_API_KEY"),
+        os.environ.get("GOOGLE_API_KEY"),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate.strip()
+    return ""
+
+def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -> str:
+    """Get Gemini model name from session state or environment."""
+    import os
+    candidate = (
+        st.session_state.get("gemini_model_name")
+        or os.environ.get("GEMINI_MODEL")
+        or default
+    )
+    return candidate.strip()
 
 
 def build_semantic_keyword_prompt(

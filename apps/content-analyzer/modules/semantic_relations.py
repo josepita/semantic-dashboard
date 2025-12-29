@@ -347,8 +347,8 @@ def render_semantic_relations():
     Visualiza similitudes, conexiones y agrupaciones de forma interactiva.
     """)
 
-    # Cargar modelo
-    from app_sections.semantic_tools import get_sentence_transformer, DEFAULT_SENTENCE_MODEL
+    # Cargar modelo - usando import local
+    from semantic_tools import get_sentence_transformer, DEFAULT_SENTENCE_MODEL
 
     with st.spinner("Cargando modelo de embeddings..."):
         model = get_sentence_transformer(DEFAULT_SENTENCE_MODEL)
