@@ -188,6 +188,10 @@ def generate_knowledge_graph_html_v2(
     batch_size: int = 200,
     manual_entities: Optional[Sequence[str]] = None,
     blacklist_entities: Optional[Sequence[str]] = None,
+    use_lemmatization: bool = True,
+    dedup_strategy: str = "longest",
+    min_entity_length: int = 2,
+    allow_common_names: bool = False,
 ) -> Tuple[str, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Genera un grafo de conocimiento interactivo a partir de texto con spaCy.
@@ -195,6 +199,10 @@ def generate_knowledge_graph_html_v2(
     Args:
         manual_entities: Lista de entidades que deben recibir boost de prominence (whitelist)
         blacklist_entities: Lista de entidades a excluir del análisis (blacklist)
+        use_lemmatization: Aplicar lemmatización para agrupar variantes (ej: hospital/hospitales)
+        dedup_strategy: Estrategia de deduplicación ('longest', 'most_frequent', 'average')
+        min_entity_length: Longitud mínima de caracteres para una entidad válida
+        allow_common_names: Si False, filtra nombres muy comunes
 
     Returns:
         Tupla con:
@@ -289,10 +297,14 @@ def generate_knowledge_graph_html_v2(
             if not is_valid_entity(
                 text=canonical_text,
                 entity_type=ent.label_,
-                min_length=2,
-                allow_common_names=False
+                min_length=min_entity_length,
+                allow_common_names=allow_common_names
             ):
                 continue  # Skip entidad ruidosa
+
+            # Aplicar lemmatización si está activada
+            if use_lemmatization:
+                canonical_text = lemmatize_text(canonical_text, nlp)
 
             # Aplicar blacklist
             entity_lower = canonical_text.lower()

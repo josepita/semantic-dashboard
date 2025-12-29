@@ -956,6 +956,63 @@ def render_csv_workflow():
                     "Instálalo/ajústalo (por ejemplo `pip install spacy==3.5.4`) antes de ejecutar el análisis."
                 )
 
+            # Configuración avanzada de filtrado de entidades
+            with st.expander("⚙️ Configuración avanzada de filtrado de entidades", expanded=False):
+                st.markdown("**Lemmatización y Deduplicación**")
+
+                col_lem1, col_lem2 = st.columns(2)
+
+                with col_lem1:
+                    use_lemmatization = st.checkbox(
+                        "Aplicar lemmatización",
+                        value=True,
+                        key="kg_use_lemmatization",
+                        help="Agrupa variantes de palabras (ej: hospital/hospitales → hospital). Reduce ruido y mejora agrupación."
+                    )
+
+                with col_lem2:
+                    dedup_strategy = st.selectbox(
+                        "Estrategia de deduplicación",
+                        options=["longest", "most_frequent", "average"],
+                        index=0,
+                        key="kg_dedup_strategy",
+                        help="Cómo elegir entre variantes lemmatizadas:\n- longest: Mantiene la forma más larga\n- most_frequent: Mantiene la más común\n- average: Promedia frecuencias"
+                    )
+
+                st.markdown("**Filtros de Ruido**")
+
+                col_filter1, col_filter2 = st.columns(2)
+
+                with col_filter1:
+                    min_entity_length = st.slider(
+                        "Longitud mínima de entidad",
+                        min_value=1,
+                        max_value=10,
+                        value=2,
+                        key="kg_min_length",
+                        help="Filtra entidades muy cortas (ej: 'a', 'el')"
+                    )
+
+                with col_filter2:
+                    min_entity_freq = st.number_input(
+                        "Frecuencia mínima",
+                        min_value=1,
+                        max_value=10,
+                        value=int(min_entity_freq),
+                        step=1,
+                        key="kg_min_freq_adv",
+                        help="Entidades que aparecen menos veces se filtran"
+                    )
+
+                allow_common_names = st.checkbox(
+                    "Permitir nombres comunes",
+                    value=False,
+                    key="kg_allow_common",
+                    help="Desactiva filtro de nombres muy comunes (Juan, María, etc.)"
+                )
+
+                st.caption("💡 Tip: La lemmatización está activada por defecto y elimina ruido como 'www', fechas, números sueltos, etc.")
+
             if st.button("Generar grafo de conocimiento"):
                 try:
                     graph_html, entities_df, doc_relations_df, spo_df, sds_df = generate_knowledge_graph_html_v2(
@@ -975,6 +1032,11 @@ def render_csv_workflow():
                         batch_size=int(batch_size),
                         manual_entities=manual_entities_list,
                         blacklist_entities=blacklist_entities_list,
+                        # Nuevos parámetros de lemmatización y filtrado
+                        use_lemmatization=use_lemmatization,
+                        dedup_strategy=dedup_strategy,
+                        min_entity_length=min_entity_length,
+                        allow_common_names=allow_common_names,
                     )
                 except RuntimeError as exc:
                     st.error(str(exc))
