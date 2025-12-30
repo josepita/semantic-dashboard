@@ -83,3 +83,17 @@ workspace/projects/*/.encryption_key
 # DuckDB temporary files
 *.duckdb-wal
 *.duckdb-shm
+
+# Docker & Deployment
+.env
+.env.production
+.env.staging
+docker-compose.override.yml
+nginx/ssl/*.crt
+nginx/ssl/*.key
+nginx/ssl/*.pem
+
+# Backups and exports
+workspace/exports/*.zip
+*.tar.gz
+backups/
