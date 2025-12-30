@@ -26,13 +26,26 @@ current_dir = Path(__file__).parent
 shared_path = current_dir.parent.parent / "shared"
 modules_path = current_dir / "modules"
 
-sys.path.insert(0, str(shared_path))
-sys.path.insert(0, str(modules_path))
+# Añadir paths ANTES de cualquier import
+if str(shared_path) not in sys.path:
+    sys.path.insert(0, str(shared_path))
+if str(modules_path) not in sys.path:
+    sys.path.insert(0, str(modules_path))
 
 # Importar módulos
 from modules.csv_workflow import render_csv_workflow
 from modules.linking_lab import render_linking_lab
-from project_manager import get_project_manager
+
+# Import con manejo de errores
+try:
+    from project_manager import get_project_manager
+except ImportError:
+    # Fallback: importar directamente desde shared
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("project_manager", shared_path / "project_manager.py")
+    project_manager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(project_manager)
+    get_project_manager = project_manager.get_project_manager
 
 st.set_page_config(
     page_title="Internal Linking Optimizer",
