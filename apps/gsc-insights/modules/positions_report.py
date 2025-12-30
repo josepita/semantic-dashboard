@@ -7,6 +7,7 @@ a partir de datos de rank tracking exportados desde herramientas SEO.
 Con soporte para persistencia en DuckDB por proyecto.
 """
 
+import os
 import re
 import time
 from typing import Dict, List, Optional, Tuple
@@ -60,6 +61,33 @@ POSITION_CHART_PRESETS: List[Tuple[str, str, str]] = [
     ),
 ]
 DEFAULT_CHART_KEYS = ["heatmap", "competitors", "radar"]
+
+
+# Helper functions para obtener configuración de Gemini
+def get_gemini_api_key_from_context() -> str:
+    """Obtiene la API key de Gemini desde session_state o variables de entorno."""
+    candidates = [
+        st.session_state.get("gemini_api_key"),
+        st.session_state.get("positions_gemini_key"),
+        os.environ.get("GEMINI_API_KEY"),
+        os.environ.get("GOOGLE_API_KEY"),
+        os.environ.get("GOOGLE_GENAI_KEY"),
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate.strip()
+    return ""
+
+
+def get_gemini_model_from_context(default: str = "gemini-2.0-flash-exp") -> str:
+    """Obtiene el modelo de Gemini desde session_state o variables de entorno."""
+    candidate = (
+        st.session_state.get("gemini_model_name")
+        or st.session_state.get("positions_gemini_model")
+        or os.environ.get("GEMINI_MODEL")
+        or default
+    )
+    return candidate.strip()
 
 
 def normalize_domain(domain: str) -> str:
@@ -1297,8 +1325,6 @@ def render_positions_report() -> None:
 
     Con soporte para persistencia automática en DuckDB por proyecto.
     """
-    from app_sections.landing_page import get_gemini_api_key_from_context, get_gemini_model_from_context
-
     st.subheader("📊 Informe de posiciones SEO")
     st.caption(
         "Procesa un CSV exportado de tu herramienta de rank tracking, añade volumen de búsqueda y genera informes HTML con Gemini."
