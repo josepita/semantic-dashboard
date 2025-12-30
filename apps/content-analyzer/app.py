@@ -39,11 +39,13 @@ from modules.semantic_relations import render_semantic_relations
 try:
     from project_manager import get_project_manager
     from oauth_manager import get_oauth_manager
+    from project_ui import render_export_import_sidebar
 except ImportError:
     # Fallback: importar directamente desde shared
     import importlib.util
     pm_path = shared_path / "project_manager.py"
     oauth_path = shared_path / "oauth_manager.py"
+    project_ui_path = shared_path / "project_ui.py"
 
     if not pm_path.exists():
         raise ImportError(f"No se encuentra project_manager.py en {shared_path}")
@@ -63,6 +65,16 @@ except ImportError:
     else:
         # Fallback si no existe
         get_oauth_manager = lambda x: None
+
+    # Cargar project_ui
+    if project_ui_path.exists():
+        spec = importlib.util.spec_from_file_location("project_ui", str(project_ui_path))
+        project_ui_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(project_ui_module)
+        render_export_import_sidebar = project_ui_module.render_export_import_sidebar
+    else:
+        # Fallback si no existe
+        render_export_import_sidebar = lambda x: None
 
 st.set_page_config(
     page_title="SEO Content Analyzer",
@@ -208,6 +220,10 @@ def main():
 
     # Sidebar - Project Selector
     render_project_selector()
+
+    # Sidebar - Export/Import (Fase 4)
+    pm = get_project_manager()
+    render_export_import_sidebar(pm)
 
     # Sidebar - Navegación
     with st.sidebar:

@@ -472,6 +472,248 @@ class ProjectManager:
 
         return stats
 
+    def export_project(
+        self,
+        project_name: str,
+        output_path: Optional[str] = None,
+        include_oauth: bool = False
+    ) -> str:
+        """
+        Exporta un proyecto completo a un archivo ZIP.
+
+        Args:
+            project_name: Nombre del proyecto a exportar
+            output_path: Ruta de salida del ZIP (opcional, default: workspace/exports/)
+            include_oauth: Si True, incluye credenciales OAuth (NO RECOMENDADO)
+
+        Returns:
+            Ruta al archivo ZIP creado
+
+        Raises:
+            FileNotFoundError: Si el proyecto no existe
+        """
+        import zipfile
+        from datetime import datetime
+
+        config = self.load_project(project_name)
+        project_path = Path(config["path"])
+
+        if not project_path.exists():
+            raise FileNotFoundError(f"El proyecto '{project_name}' no existe")
+
+        # Crear directorio de exports si no existe
+        if output_path is None:
+            exports_dir = self.workspace_root / "exports"
+            exports_dir.mkdir(exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_path = exports_dir / f"{project_name}_{timestamp}.zip"
+        else:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Crear ZIP
+        with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Recorrer todos los archivos del proyecto
+            for file_path in project_path.rglob('*'):
+                if not file_path.is_file():
+                    continue
+
+                # Excluir oauth/ por defecto (seguridad)
+                relative_path = file_path.relative_to(project_path)
+
+                if not include_oauth and str(relative_path).startswith('oauth'):
+                    continue
+
+                # Excluir archivos temporales
+                if file_path.suffix in ['.tmp', '.bak', '.lock']:
+                    continue
+
+                # Excluir DuckDB WAL files
+                if file_path.suffix in ['.duckdb-wal', '.duckdb-shm']:
+                    continue
+
+                # Añadir al ZIP
+                arcname = f"{project_name}/{relative_path}"
+                zipf.write(file_path, arcname=arcname)
+
+        # Calcular tamaño del ZIP
+        zip_size_mb = round(output_path.stat().st_size / (1024 * 1024), 2)
+
+        print(f"✅ Proyecto '{project_name}' exportado a: {output_path}")
+        print(f"   Tamaño: {zip_size_mb} MB")
+        if not include_oauth:
+            print(f"   ⚠️  Credenciales OAuth NO incluidas (por seguridad)")
+
+        return str(output_path)
+
+    def import_project(
+        self,
+        zip_path: str,
+        project_name: Optional[str] = None,
+        overwrite: bool = False
+    ) -> str:
+        """
+        Importa un proyecto desde un archivo ZIP.
+
+        Args:
+            zip_path: Ruta al archivo ZIP a importar
+            project_name: Nombre para el proyecto importado (opcional)
+            overwrite: Si True, sobrescribe proyecto existente
+
+        Returns:
+            Nombre del proyecto importado
+
+        Raises:
+            FileNotFoundError: Si el ZIP no existe
+            ValueError: Si el ZIP no es válido o el proyecto ya existe
+        """
+        import zipfile
+        import tempfile
+
+        zip_path = Path(zip_path)
+
+        if not zip_path.exists():
+            raise FileNotFoundError(f"Archivo ZIP no encontrado: {zip_path}")
+
+        # Validar que sea un ZIP válido
+        if not zipfile.is_zipfile(zip_path):
+            raise ValueError(f"El archivo no es un ZIP válido: {zip_path}")
+
+        # Extraer a directorio temporal para validar
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                zipf.extractall(temp_path)
+
+            # Encontrar directorio del proyecto dentro del ZIP
+            # Buscar config.json en el primer nivel
+            project_dirs = [
+                d for d in temp_path.iterdir()
+                if d.is_dir() and (d / "config.json").exists()
+            ]
+
+            if not project_dirs:
+                raise ValueError(
+                    "ZIP inválido: no se encontró config.json en el proyecto"
+                )
+
+            if len(project_dirs) > 1:
+                raise ValueError(
+                    "ZIP inválido: múltiples proyectos encontrados"
+                )
+
+            extracted_project_dir = project_dirs[0]
+
+            # Cargar config del proyecto
+            with open(extracted_project_dir / "config.json", 'r', encoding='utf-8') as f:
+                imported_config = json.load(f)
+
+            # Determinar nombre del proyecto
+            if project_name is None:
+                project_name = imported_config.get("safe_name", extracted_project_dir.name)
+
+            # Sanitizar nombre
+            safe_name = "".join(
+                c if c.isalnum() or c in ('-', '_') else '_'
+                for c in project_name.lower().strip()
+            )
+
+            target_path = self.projects_dir / safe_name
+
+            # Verificar si existe
+            if target_path.exists():
+                if not overwrite:
+                    raise ValueError(
+                        f"El proyecto '{safe_name}' ya existe. "
+                        f"Usa overwrite=True para sobrescribir."
+                    )
+                # Eliminar proyecto existente
+                shutil.rmtree(target_path)
+
+            # Copiar proyecto importado
+            shutil.copytree(extracted_project_dir, target_path)
+
+            # Actualizar config con nuevo nombre si cambió
+            config_path = target_path / "config.json"
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+
+            config["safe_name"] = safe_name
+            config["imported_at"] = datetime.now().isoformat()
+            config["imported_from"] = str(zip_path)
+
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+
+            # Verificar estructura del proyecto
+            required_items = ["config.json", "database.duckdb"]
+            missing = []
+            for item in required_items:
+                if not (target_path / item).exists():
+                    missing.append(item)
+
+            if missing and "database.duckdb" in missing:
+                # Crear DB vacía si no existe
+                self._init_database(target_path)
+
+            # Validar y actualizar schema si es necesario
+            self._validate_and_migrate_schema(target_path)
+
+        print(f"✅ Proyecto importado como '{safe_name}'")
+        print(f"   Origen: {zip_path}")
+        if not (target_path / "oauth").exists() or not list((target_path / "oauth").iterdir()):
+            print(f"   ⚠️  Deberás reconfigurar las credenciales OAuth")
+
+        return safe_name
+
+    def _validate_and_migrate_schema(self, project_path: Path):
+        """
+        Valida el schema de la base de datos y migra si es necesario.
+
+        Args:
+            project_path: Ruta al proyecto
+        """
+        db_path = project_path / "database.duckdb"
+
+        if not db_path.exists():
+            return
+
+        try:
+            import duckdb
+
+            conn = duckdb.connect(str(db_path))
+
+            # Obtener tablas existentes
+            tables = conn.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'main'"
+            ).fetchall()
+
+            table_names = [t[0] for t in tables]
+
+            # Tablas requeridas
+            required_tables = ['urls', 'gsc_positions', 'embeddings', 'keyword_families']
+
+            # Verificar que existen las tablas básicas
+            missing_tables = [t for t in required_tables if t not in table_names]
+
+            if missing_tables:
+                print(f"   ⚠️  Tablas faltantes detectadas: {missing_tables}")
+                print(f"   Creando tablas faltantes...")
+
+                # Crear tablas faltantes (schema básico)
+                from shared.db_schema import get_initial_schema
+                schema_sql = get_initial_schema()
+                conn.execute(schema_sql)
+
+                print(f"   ✅ Schema actualizado")
+
+            conn.close()
+
+        except Exception as e:
+            print(f"   ⚠️  Error al validar schema: {e}")
+
 
 # Función helper para obtener instancia global
 _project_manager_instance = None
