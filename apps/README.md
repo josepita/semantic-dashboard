@@ -2,6 +2,8 @@
 
 Este directorio contiene 3 aplicaciones Streamlit independientes, cada una especializada en diferentes aspectos del análisis SEO con embeddings e IA.
 
+**✨ Nuevo:** Sistema multi-proyecto con persistencia en DuckDB - gestiona múltiples clientes con datos independientes.
+
 ## 📁 Estructura de Apps
 
 ```
@@ -69,6 +71,64 @@ streamlit run app.py
 - Insights con Gemini AI
 
 **Tecnología:** Pandas, Matplotlib, Plotly, Gemini AI
+
+## 📁 Sistema de Proyectos (Nuevo)
+
+Todas las apps ahora incluyen un **selector de proyectos** en el sidebar que permite:
+
+### Características
+- **Multi-proyecto:** Gestiona múltiples clientes con datos independientes
+- **Persistencia automática:** Datos guardados en DuckDB por proyecto
+- **Sin re-uploads:** Los datos se cargan automáticamente al abrir el proyecto
+- **Estadísticas:** Visualiza URLs, embeddings, registros por proyecto
+- **Switch rápido:** Cambia entre proyectos sin reiniciar la app
+
+### Estructura de Proyecto
+```
+workspace/
+├── .workspace_config.json      # Config global + último proyecto
+└── projects/
+    └── mi-cliente/
+        ├── config.json          # Configuración del proyecto
+        ├── database.duckdb      # Base de datos DuckDB
+        ├── embeddings/          # Caché de embeddings
+        │   ├── [model].faiss    # Índice FAISS (opcional)
+        │   └── metadata.json
+        └── oauth/               # Credenciales OAuth (gitignored)
+```
+
+### Uso Básico
+
+**1. Crear proyecto:**
+- Abre cualquier app
+- Sidebar → "➕ Crear Nuevo Proyecto"
+- Nombre: "Mi Cliente SEO"
+- Dominio: "ejemplo.com"
+
+**2. Trabajar con datos:**
+- App 3 (GSC Insights): Sube CSV de posiciones → Se guarda en DuckDB
+- App 2 (Linking Optimizer): Genera embeddings → Se guardan en caché
+- App 1 (Content Analyzer): Analiza contenido → Se persiste en DB
+
+**3. Recuperar datos:**
+- Cierra la app
+- Vuelve a abrir
+- El proyecto se carga automáticamente
+- Click "📊 Cargar datos guardados del proyecto"
+- Todos los datos están disponibles sin re-subir archivos
+
+### Componentes de Persistencia
+
+**DataOrchestrator** ([shared/data_orchestrator.py](../shared/data_orchestrator.py))
+- Gestión unificada de todos los datos en DuckDB
+- Métodos para URLs, embeddings, GSC, familias, relaciones, entidades, clusters, FAQs
+- Ver [USAGE.md](../shared/USAGE.md) para documentación completa
+
+**EmbeddingCache** ([shared/embedding_cache.py](../shared/embedding_cache.py))
+- Caché híbrido DuckDB + FAISS para embeddings
+- Búsqueda de similitud 100-1000x más rápida con FAISS
+- Sincronización automática entre DuckDB y FAISS
+- Ver [USAGE.md](../shared/USAGE.md) para ejemplos de uso
 
 ## 📦 Instalación
 

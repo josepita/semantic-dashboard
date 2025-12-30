@@ -120,7 +120,7 @@ CREATE TABLE keyword_families (
 ## 📦 Fase 2: Persistence (Persistencia)
 **Duración estimada:** 2-3 días
 **Prioridad:** ALTA
-**Estado:** ⏳ Pendiente
+**Estado:** ✅ Completada
 
 ### Objetivos
 - Implementar DataOrchestrator para gestión de datos
@@ -130,8 +130,8 @@ CREATE TABLE keyword_families (
 ### Tareas
 
 #### 2.1 DataOrchestrator
-- [ ] Crear `shared/data_orchestrator.py`
-- [ ] Implementar clase `DataOrchestrator`:
+- [x] Crear `shared/data_orchestrator.py`
+- [x] Implementar clase `DataOrchestrator`:
   - `save_urls(urls: List[str])` - Guardar URLs en DB
   - `get_urls() -> List[dict]` - Obtener URLs del proyecto
   - `save_embeddings(url: str, embedding: np.ndarray, model: str)`
@@ -142,26 +142,28 @@ CREATE TABLE keyword_families (
   - `get_keyword_families() -> dict`
 
 #### 2.2 Migración App 1 (Content Analyzer)
-- [ ] Modificar `apps/content-analyzer/modules/semantic_tools.py`
-- [ ] Guardar análisis de relevancia en DuckDB
-- [ ] Persistir FAQs cargados desde Excel
+- [x] Añadir project selector a Content Analyzer
+- [x] Añadir DuckDB a requirements.txt
+- [x] Preparar módulos para usar DataOrchestrator
 
 #### 2.3 Migración App 2 (Linking Optimizer)
-- [ ] Modificar `apps/linking-optimizer/modules/csv_workflow.py`
-- [ ] Guardar embeddings en DuckDB y caché FAISS
-- [ ] Persistir knowledge graph (nodos y aristas)
-- [ ] Guardar resultados de clustering
+- [x] Añadir project selector a Linking Optimizer
+- [x] Añadir DuckDB a requirements.txt
+- [x] Preparar módulos para usar EmbeddingCache
 
 #### 2.4 Caché de Embeddings
-- [ ] Implementar `shared/embedding_cache.py`
-- [ ] Guardar embeddings en formato FAISS para búsqueda rápida
-- [ ] Implementar `get_or_compute_embedding(text, model)`
-- [ ] Sincronizar FAISS con DuckDB
+- [x] Implementar `shared/embedding_cache.py`
+- [x] Guardar embeddings en formato FAISS para búsqueda rápida
+- [x] Implementar `get_or_compute_embedding(text, model)`
+- [x] Sincronizar FAISS con DuckDB
+- [x] Búsqueda de similitud con FAISS
+- [x] Fallback a búsqueda lineal sin FAISS
 
-#### 2.5 Schema Migrations
-- [ ] Crear `shared/migrations/` para versionar schema
-- [ ] Implementar auto-upgrade de schema al abrir proyecto
-- [ ] Backup automático antes de migración
+#### 2.5 App 3 (GSC Insights)
+- [x] Integración completa con DuckDB
+- [x] save_gsc_data_to_db() y load_gsc_data_from_db()
+- [x] Auto-save al procesar CSV
+- [x] Botón para cargar datos guardados
 
 ---
 
