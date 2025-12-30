@@ -19,10 +19,10 @@ import streamlit as st
 import sys
 from pathlib import Path
 
-# Añadir paths al sistema
-current_dir = Path(__file__).parent
-shared_path = current_dir.parent.parent / "shared"
-modules_path = current_dir / "modules"
+# Añadir paths al sistema (resolver a paths absolutos)
+current_dir = Path(__file__).parent.resolve()
+shared_path = (current_dir.parent.parent / "shared").resolve()
+modules_path = (current_dir / "modules").resolve()
 
 # Añadir paths ANTES de cualquier import
 if str(shared_path) not in sys.path:
@@ -41,7 +41,10 @@ try:
 except ImportError:
     # Fallback: importar directamente desde shared
     import importlib.util
-    spec = importlib.util.spec_from_file_location("project_manager", shared_path / "project_manager.py")
+    pm_path = shared_path / "project_manager.py"
+    if not pm_path.exists():
+        raise ImportError(f"No se encuentra project_manager.py en {shared_path}")
+    spec = importlib.util.spec_from_file_location("project_manager", str(pm_path))
     project_manager = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(project_manager)
     get_project_manager = project_manager.get_project_manager
