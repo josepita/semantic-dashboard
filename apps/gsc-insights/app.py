@@ -37,16 +37,31 @@ from modules.positions_report import render_positions_report
 # Import con manejo de errores
 try:
     from project_manager import get_project_manager
+    from oauth_manager import get_oauth_manager
 except ImportError:
     # Fallback: importar directamente desde shared
     import importlib.util
     pm_path = shared_path / "project_manager.py"
+    oauth_path = shared_path / "oauth_manager.py"
+
     if not pm_path.exists():
         raise ImportError(f"No se encuentra project_manager.py en {shared_path}")
+
+    # Cargar project_manager
     spec = importlib.util.spec_from_file_location("project_manager", str(pm_path))
     project_manager = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(project_manager)
     get_project_manager = project_manager.get_project_manager
+
+    # Cargar oauth_manager
+    if oauth_path.exists():
+        spec = importlib.util.spec_from_file_location("oauth_manager", str(oauth_path))
+        oauth_manager_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(oauth_manager_module)
+        get_oauth_manager = oauth_manager_module.get_oauth_manager
+    else:
+        # Fallback si no existe
+        get_oauth_manager = lambda x: None
 
 st.set_page_config(
     page_title="GSC Insights & Reporting",
@@ -115,6 +130,20 @@ def render_project_selector():
                 project_config = pm.load_project(st.session_state.current_project)
                 st.session_state.project_config = project_config
 
+                # Auto-cargar credenciales OAuth (Fase 3)
+                oauth_manager = get_oauth_manager(project_config)
+                if oauth_manager:
+                    st.session_state.oauth_manager = oauth_manager
+
+                    # Cargar API keys si existen
+                    gemini_key = oauth_manager.load_api_key('gemini', 'GEMINI_API_KEY')
+                    if gemini_key:
+                        st.session_state.gemini_api_key = gemini_key
+
+                    openai_key = oauth_manager.load_api_key('openai', 'OPENAI_API_KEY')
+                    if openai_key:
+                        st.session_state.openai_api_key = openai_key
+
                 # Mostrar info del proyecto
                 st.sidebar.success(f"✅ {project_config['domain']}")
 
@@ -124,6 +153,25 @@ def render_project_selector():
                     st.metric("URLs", stats.get("urls_count", 0))
                     st.metric("Registros GSC", stats.get("gsc_records", 0))
                     st.metric("Tamaño", f"{stats.get('size_mb', 0)} MB")
+
+                # Estado de autenticación (Fase 3)
+                if oauth_manager:
+                    with st.sidebar.expander("🔐 Credenciales", expanded=False):
+                        auth_status = oauth_manager.get_auth_status()
+
+                        # OAuth
+                        if auth_status['gsc']:
+                            st.success("✅ GSC autenticado")
+                        else:
+                            st.info("ℹ️ GSC no configurado")
+
+                        # API Keys
+                        api_keys = auth_status.get('api_keys', [])
+                        if api_keys:
+                            st.success(f"✅ API Keys: {', '.join(api_keys)}")
+                        else:
+                            st.info("ℹ️ No hay API keys")
+
             except Exception as e:
                 st.sidebar.error(f"Error al cargar proyecto: {e}")
 

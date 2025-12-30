@@ -170,40 +170,49 @@ CREATE TABLE keyword_families (
 ## 🔐 Fase 3: OAuth & Credentials (Credenciales)
 **Duración estimada:** 2-3 días
 **Prioridad:** MEDIA
-**Estado:** ⏳ Pendiente
+**Estado:** ✅ Completada
 
 ### Objetivos
-- Almacenar credenciales OAuth por proyecto
-- Auto-switch de credenciales al cambiar proyecto
-- Gestión segura de API keys
+- Almacenar credenciales OAuth por proyecto ✅
+- Auto-switch de credenciales al cambiar proyecto ✅
+- Gestión segura de API keys ✅
 
 ### Tareas
 
 #### 3.1 OAuth Storage
-- [ ] Crear `shared/oauth_manager.py`
-- [ ] Implementar `OAuthManager`:
+- [x] Crear `shared/oauth_manager.py`
+- [x] Implementar `OAuthManager`:
   - `save_gsc_credentials(project_name, credentials)`
   - `load_gsc_credentials(project_name) -> Credentials`
   - `save_analytics_credentials(project_name, credentials)`
   - `is_authenticated(project_name, service) -> bool`
+  - `save_api_key(service, api_key)` - Guardar API keys encriptadas
+  - `load_api_key(service, fallback_env)` - Cargar con fallback
+  - `delete_api_key(service)` - Eliminar API key
+  - `list_api_keys()` - Listar servicios configurados
 
 #### 3.2 Credential Switching
-- [ ] Auto-cargar credenciales al cambiar de proyecto
-- [ ] Actualizar `st.session_state` con credenciales del proyecto
-- [ ] Indicador visual de estado de autenticación
+- [x] Auto-cargar credenciales al cambiar de proyecto
+- [x] Actualizar `st.session_state` con credenciales del proyecto
+- [x] Indicador visual de estado de autenticación en sidebar
+- [x] Expander "🔐 Credenciales" en todas las apps
 
 #### 3.3 API Keys por Proyecto
-- [ ] Almacenar API keys en `config.json` del proyecto (encriptado)
-- [ ] UI para configurar:
+- [x] Almacenar API keys encriptadas en `oauth/api_keys.encrypted.json`
+- [x] UI completa para configurar (`shared/credentials_ui.py`):
   - OpenAI API Key
   - Gemini API Key
-  - Otros servicios externos
-- [ ] Fallback a variables de entorno si no hay key en proyecto
+  - Anthropic (Claude) API Key
+  - Serprobot API Key
+- [x] Fallback a variables de entorno si no hay key en proyecto
+- [x] Encriptación con Fernet (AES-128)
 
 #### 3.4 Security
-- [ ] Añadir `workspace/projects/*/oauth/` a `.gitignore`
-- [ ] Implementar encriptación básica de API keys
-- [ ] Verificar permisos de archivo en Linux/Mac
+- [x] Añadir `workspace/projects/*/oauth/` a `.gitignore`
+- [x] Añadir `workspace/projects/*/.encryption_key` a `.gitignore`
+- [x] Implementar encriptación básica de API keys con Fernet
+- [x] Clave de encriptación única por proyecto
+- [x] Dependencias añadidas: `cryptography>=42.0.0`, `google-auth>=2.27.0`
 
 ---
 

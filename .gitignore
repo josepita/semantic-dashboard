@@ -75,3 +75,11 @@ coverage.xml
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# OAuth credentials (per-project) - Fase 3
+workspace/projects/*/oauth/
+workspace/projects/*/.encryption_key
+
+# DuckDB temporary files
+*.duckdb-wal
+*.duckdb-shm
