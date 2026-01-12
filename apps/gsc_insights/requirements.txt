@@ -1,0 +1,39 @@
+# GSC Insights & Reporting - Requirements
+# Análisis de posiciones SEO y rank tracking
+
+# Core
+streamlit>=1.39.0
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Database
+duckdb>=0.10.0
+
+# Excel support
+openpyxl>=3.1.0
+xlrd>=2.0.1
+
+# Semantic analysis & embeddings
+sentence-transformers>=2.7.0
+
+# Text extraction
+trafilatura>=1.9.0
+beautifulsoup4>=4.12.0
+
+# Scientific computing
+scipy>=1.11.0
+scikit-learn>=1.4.0
+
+# Visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.17.0
+
+# AI Integration
+google-generativeai>=0.3.0
+
+# Authentication & Security (Fase 3)
+cryptography>=42.0.0
+google-auth>=2.27.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
