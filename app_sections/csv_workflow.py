@@ -25,7 +25,8 @@ from app_sections.knowledge_graph import (
     build_entity_payload_from_doc_relations,
     generate_knowledge_graph_html_v2,
 )
-from app_sections.linking_lab import (
+# Funciones migradas a módulos compartidos
+from apps.content_analyzer.modules.shared.content_utils import (
     detect_embedding_columns,
     detect_url_columns,
     preprocess_embeddings,

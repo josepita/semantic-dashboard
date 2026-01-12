@@ -39,19 +39,22 @@ from app_sections.authority_advance import (
     run_authority_gap_from_embeddings,
     run_authority_gap_simulation,
 )
-from app_sections.linking_lab import (
-    render_linking_lab,
+from app_sections.linking_lab import render_linking_lab
+
+# Funciones migradas a módulos compartidos
+from apps.content_analyzer.modules.shared.content_utils import (
     detect_embedding_columns,
     preprocess_embeddings,
     detect_url_columns,
     detect_page_type_columns,
+)
+from apps.linking_optimizer.modules.linking_utils import (
     build_entity_payload_from_doc_relations,
 )
 from app_sections.keyword_builder import (
     render_semantic_keyword_builder,
     group_keywords_with_semantic_builder,
 )
-from app_sections.logs import render_logs_dashboard
 from app_sections.semantic_tools import (
     best_similarity_per_url_keyword,
     build_url_variant_entries,
@@ -70,6 +73,7 @@ from app_sections.semantic_tools import (
 )
 from app_sections.csv_workflow import render_csv_workflow
 from app_sections.positions_report import render_positions_report
+from app_sections.semantic_relations import render_semantic_relations
 from app_sections.landing_page import (
     render_api_settings_panel,
     apply_global_styles,
@@ -233,8 +237,8 @@ def main():
         render_linking_lab()
     elif app_view == "positions":
         render_positions_report()
-    elif app_view == "logs":
-        render_logs_dashboard()
+    elif app_view == "relations":
+        render_semantic_relations()
 
 
 
