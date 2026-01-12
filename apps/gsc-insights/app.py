@@ -22,10 +22,14 @@ from pathlib import Path
 
 # Añadir paths al sistema (resolver a paths absolutos)
 current_dir = Path(__file__).parent.resolve()
-shared_path = (current_dir.parent.parent / "shared").resolve()
+project_root = (current_dir.parent.parent).resolve()  # EmbeddingDashboard/
+shared_path = (project_root / "shared").resolve()
 modules_path = (current_dir / "modules").resolve()
 
 # Añadir paths ANTES de cualquier import
+# IMPORTANTE: Añadir project_root para que funcionen imports como "from apps.gsc_insights..."
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 if str(shared_path) not in sys.path:
     sys.path.insert(0, str(shared_path))
 if str(modules_path) not in sys.path:
@@ -184,8 +188,14 @@ def render_project_selector():
                         else:
                             st.info("ℹ️ No hay API keys")
 
+            except FileNotFoundError as e:
+                st.sidebar.error(f"📁 Proyecto no encontrado: {e}")
+            except (ValueError, KeyError) as e:
+                st.sidebar.error(f"⚠️ Configuración de proyecto inválida: {e}")
+            except PermissionError as e:
+                st.sidebar.error(f"🔒 Sin permisos para acceder al proyecto: {e}")
             except Exception as e:
-                st.sidebar.error(f"Error al cargar proyecto: {e}")
+                st.sidebar.error(f"❌ Error inesperado al cargar proyecto: {e}")
 
     # Botón para crear nuevo proyecto
     st.sidebar.markdown("---")
@@ -208,8 +218,14 @@ def render_project_selector():
                         pm.set_last_project(safe_name)
                         st.success(f"✅ Proyecto '{new_name}' creado")
                         st.rerun()
+                    except FileExistsError as e:
+                        st.error(f"⚠️ Ya existe un proyecto con ese nombre")
+                    except PermissionError as e:
+                        st.error(f"🔒 Sin permisos para crear proyecto: {e}")
+                    except ValueError as e:
+                        st.error(f"❌ Datos inválidos: {e}")
                     except Exception as e:
-                        st.error(f"Error: {e}")
+                        st.error(f"❌ Error inesperado al crear proyecto: {e}")
 
 
 def main():
