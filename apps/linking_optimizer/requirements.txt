@@ -1,0 +1,46 @@
+# Internal Linking Optimizer - Requirements
+# Full-featured version with embeddings analysis and linking recommendations
+
+# Core
+streamlit>=1.39.0
+pandas>=2.2.0
+numpy>=1.26.0
+tqdm>=4.66.0
+
+# Database
+duckdb>=0.10.0
+
+# Excel support
+openpyxl>=3.1.0
+xlrd>=2.0.1
+
+# Machine Learning & Embeddings
+sentence-transformers>=2.7.0
+openai>=1.51.0
+scikit-learn>=1.4.0
+scipy>=1.11.0
+
+# NLP
+spacy>=3.7.0
+
+# Text extraction
+trafilatura>=1.9.0
+beautifulsoup4>=4.12.0
+
+# Graph analysis
+networkx>=3.0
+pyvis>=0.3.2
+
+# Visualization
+matplotlib>=3.8.0
+seaborn>=0.13.0
+plotly>=5.17.0
+
+# Optional: Gemini AI for advanced features
+google-generativeai>=0.3.0
+
+# Authentication & Security (Fase 3)
+cryptography>=42.0.0
+google-auth>=2.27.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
