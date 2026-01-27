@@ -115,6 +115,11 @@ def compute_similar_pages(
         return []
 
     embeddings = np.vstack(df[embedding_col].values)
+
+    # Manejar NaN en embeddings - reemplazar con 0
+    if np.isnan(embeddings).any():
+        embeddings = np.nan_to_num(embeddings, nan=0.0)
+
     embeddings_norm = normalize(embeddings)
     target_idx = df[df[url_column] == target_url].index[0]
     target_embedding = embeddings_norm[target_idx]
@@ -142,6 +147,9 @@ def build_similarity_matrix(
     """Build a pairwise similarity matrix for all URLs."""
     urls = df[url_column].tolist()
     embeddings = np.vstack(df[embedding_col].values)
+    # Manejar NaN en embeddings
+    if np.isnan(embeddings).any():
+        embeddings = np.nan_to_num(embeddings, nan=0.0)
     embeddings_norm = normalize(embeddings)
     sim_matrix = embeddings_norm @ embeddings_norm.T * 100
 
@@ -185,6 +193,9 @@ def auto_select_cluster_count(
 ) -> Tuple[int, Dict[int, float]]:
     """Automatically select the optimal number of clusters using silhouette score."""
     embeddings = np.vstack(df[embedding_col].values)
+    # Manejar NaN en embeddings
+    if np.isnan(embeddings).any():
+        embeddings = np.nan_to_num(embeddings, nan=0.0)
     embeddings_norm = normalize(embeddings)
     n_samples = embeddings_norm.shape[0]
 
@@ -225,6 +236,9 @@ def cluster_pages(
 ) -> Tuple[pd.DataFrame, Dict[int, str], KMeans, np.ndarray]:
     """Cluster pages using K-means and assign descriptive names to clusters."""
     embeddings = np.vstack(df[embedding_col].values)
+    # Manejar NaN en embeddings
+    if np.isnan(embeddings).any():
+        embeddings = np.nan_to_num(embeddings, nan=0.0)
     embeddings_norm = normalize(embeddings)
 
     model = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
