@@ -527,7 +527,8 @@ def render_csv_workflow():
             st.info("No se encontraron páginas similares o la URL no existe.")
 
     with st.expander("Opcional: generar matriz completa de similitud"):
-        threshold = st.slider("Umbral mínimo de similitud (%)", min_value=0, max_value=100, value=70, step=1)
+        threshold = st.slider("Umbral mínimo de similitud (%)", min_value=0, max_value=100, value=50, step=1)
+        st.caption("💡 Valores típicos: 50-60% para encontrar relaciones, 70%+ para páginas muy similares")
         max_pairs = st.number_input(
             "Máximo de pares a conservar (0 para ilimitado)",
             min_value=0,
@@ -536,18 +537,32 @@ def render_csv_workflow():
         )
         if st.button("Construir matriz filtrada"):
             with st.spinner("Calculando matriz de similitud..."):
-                matrix_df = build_similarity_matrix(
+                # Primero calculamos sin umbral para diagnóstico
+                matrix_df_full = build_similarity_matrix(
                     processed_df,
                     url_column,
-                    similarity_threshold=threshold,
-                    max_results=None if max_pairs == 0 else int(max_pairs),
+                    similarity_threshold=None,  # Sin filtro primero
+                    max_results=None,
                 )
-            if matrix_df.empty:
-                st.info("No hay pares que cumplan el umbral establecido.")
-            else:
-                st.dataframe(matrix_df.head(100))
-                st.caption(f"{len(matrix_df)} pares generados.")
-                download_dataframe_button(matrix_df, "matriz_similitud.xlsx", "Descargar matriz Excel")
+                if matrix_df_full.empty:
+                    st.error("No se pudieron calcular similitudes. Verifica que los embeddings estén correctamente procesados.")
+                else:
+                    # Mostrar estadísticas
+                    max_sim = matrix_df_full["Similitud"].max()
+                    avg_sim = matrix_df_full["Similitud"].mean()
+                    st.info(f"📊 Similitud máxima: {max_sim:.1f}% | Promedio: {avg_sim:.1f}%")
+
+                    # Aplicar filtro
+                    matrix_df = matrix_df_full[matrix_df_full["Similitud"] >= threshold].copy()
+                    if max_pairs and max_pairs > 0:
+                        matrix_df = matrix_df.head(int(max_pairs))
+
+                    if matrix_df.empty:
+                        st.warning(f"No hay pares con similitud >= {threshold}%. Prueba bajando el umbral.")
+                    else:
+                        st.dataframe(matrix_df.head(100))
+                        st.caption(f"{len(matrix_df)} pares generados (de {len(matrix_df_full)} totales).")
+                        download_dataframe_button(matrix_df, "matriz_similitud.xlsx", "Descargar matriz Excel")
 
     st.info(
         "¿Buscas recomendaciones de enlazado interno? Abre el **Laboratorio de enlazado** desde la pantalla principal "
