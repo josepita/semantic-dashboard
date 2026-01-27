@@ -254,17 +254,33 @@ def render_linking_lab() -> None:
                     for url in examples:
                         st.text(f"🚫 {url}")
 
-                # Opción de aplicar filtro
-                apply_filter = st.checkbox(
-                    "✅ Excluir estas páginas como destino de enlaces",
-                    value=st.session_state.get("apply_non_linkable_filter", False),
-                    key="apply_non_linkable_filter_cb",
-                    help="Las páginas detectadas no recibirán enlaces, pero sí podrán ser origen"
-                )
-                st.session_state["apply_non_linkable_filter"] = apply_filter
+                # Opciones de filtro
+                col_filter1, col_filter2 = st.columns(2)
+                with col_filter1:
+                    exclude_as_target = st.checkbox(
+                        "🚫 Excluir como DESTINO de enlaces",
+                        value=st.session_state.get("exclude_non_linkable_as_target", True),
+                        key="exclude_non_linkable_target_cb",
+                        help="Las páginas detectadas no recibirán enlaces"
+                    )
+                    st.session_state["exclude_non_linkable_as_target"] = exclude_as_target
 
-                if apply_filter:
-                    st.success(f"✅ Filtro activo: {non_linkable_count} páginas excluidas como destino")
+                with col_filter2:
+                    exclude_as_source = st.checkbox(
+                        "🚫 Excluir como ORIGEN de enlaces",
+                        value=st.session_state.get("exclude_non_linkable_as_source", True),
+                        key="exclude_non_linkable_source_cb",
+                        help="Las páginas detectadas no generarán enlaces a otras"
+                    )
+                    st.session_state["exclude_non_linkable_as_source"] = exclude_as_source
+
+                if exclude_as_target or exclude_as_source:
+                    msg_parts = []
+                    if exclude_as_target:
+                        msg_parts.append("destino")
+                    if exclude_as_source:
+                        msg_parts.append("origen")
+                    st.success(f"✅ Filtro activo: {non_linkable_count} páginas excluidas como {' y '.join(msg_parts)}")
             else:
                 st.success("✅ No se detectaron páginas no enlazables con los criterios actuales")
 
@@ -821,20 +837,179 @@ def render_linking_lab() -> None:
             "No requiere embeddings, solo estructura de URLs o columna de jerarquía custom."
         )
 
-        # Opción de usar jerarquía custom o extraer de URLs
-        use_custom_hierarchy = st.checkbox(
-            "Usar columna de jerarquía custom (categoría, silo, etc.)",
-            key="linking_structural_use_custom_hierarchy"
+        # ====================================================================
+        # SECCIÓN DE AYUDA
+        # ====================================================================
+        with st.expander("📚 **Ayuda: Cómo usar el modo estructural**", expanded=False):
+            st.markdown("""
+            ### 🏛️ ¿Qué es el enlazado estructural?
+
+            El enlazado estructural crea enlaces basados en la **jerarquía/taxonomía** de tu sitio:
+            - **Breadcrumb**: Enlaces de hijos a padres (ej: `/blog/seo/guia-seo` → `/blog/seo/`)
+            - **Hermanos**: Enlaces entre páginas del mismo nivel (ej: `/servicios/seo/` ↔ `/servicios/sem/`)
+            - **Destacados**: Enlaces de categorías a sus mejores hijos
+
+            ---
+
+            ### 📊 Opciones de jerarquía
+
+            **Opción 1: Extraer de URLs (automático)**
+            - El sistema analiza la estructura de tus URLs
+            - Ejemplo: `/blog/marketing/guia-email/` → Jerarquía = `blog > marketing`
+
+            **Opción 2: Columna en tu CSV**
+            - Si tu CSV ya tiene una columna de categoría/silo
+            - Ejemplo: columna "Categoría" con valores como "Blog", "Servicios", "Productos"
+
+            **Opción 3: Cargar Excel de jerarquía** (abajo)
+            - Archivo separado con la estructura jerárquica completa
+            - Útil cuando la jerarquía no coincide con la URL
+
+            ---
+
+            ### 📝 Ejemplo de Excel de jerarquía
+
+            Tu Excel debe tener estas columnas (la URL es la clave):
+
+            | URL | Nivel1 | Nivel2 | Nivel3 | Padre |
+            |-----|--------|--------|--------|-------|
+            | https://ejemplo.com/ | Home | | | |
+            | https://ejemplo.com/blog/ | Blog | | | https://ejemplo.com/ |
+            | https://ejemplo.com/blog/seo/ | Blog | SEO | | https://ejemplo.com/blog/ |
+            | https://ejemplo.com/blog/seo/guia-basica/ | Blog | SEO | Guías | https://ejemplo.com/blog/seo/ |
+            | https://ejemplo.com/servicios/ | Servicios | | | https://ejemplo.com/ |
+            | https://ejemplo.com/servicios/consultoria/ | Servicios | Consultoría | | https://ejemplo.com/servicios/ |
+
+            **Columnas requeridas:**
+            - `URL`: La URL completa (clave primaria, debe coincidir con tu CSV de embeddings)
+            - `Nivel1`, `Nivel2`, `Nivel3`: Categorías jerárquicas (opcional)
+            - `Padre`: URL de la página padre (opcional pero recomendado)
+
+            ---
+
+            ### ⚙️ Parámetros explicados
+
+            - **Profundidad de URL**: Cuántos segmentos de URL usar para la jerarquía (ej: 2 = `/blog/seo/`)
+            - **Máx. enlaces por padre**: Límite de enlaces entre hermanos o de padre a hijos
+            - **Peso de enlaces**: Para cálculos de PageRank posteriores
+            - **Enlaces horizontales**: Activar para enlazar hermanos entre sí
+            - **Prioridad semántica**: Ordenar hermanos por similitud (requiere embeddings)
+            """)
+
+        st.markdown("---")
+
+        # ====================================================================
+        # CARGAR EXCEL DE JERARQUÍA (NUEVO)
+        # ====================================================================
+        with st.expander("📁 **Cargar Excel de jerarquía (opcional)**", expanded=False):
+            st.markdown("""
+            Sube un Excel con la estructura jerárquica de tu sitio.
+            La columna **URL** será la clave para unir con tus datos de embeddings.
+            """)
+
+            hierarchy_file = st.file_uploader(
+                "Subir Excel de jerarquía",
+                type=["xlsx", "xls", "csv"],
+                key="structural_hierarchy_file"
+            )
+
+            if hierarchy_file is not None:
+                try:
+                    if hierarchy_file.name.endswith('.csv'):
+                        hierarchy_df = pd.read_csv(hierarchy_file)
+                    else:
+                        hierarchy_df = pd.read_excel(hierarchy_file)
+
+                    st.success(f"✅ Cargado: {len(hierarchy_df)} filas")
+
+                    # Mostrar preview
+                    st.dataframe(hierarchy_df.head(10))
+
+                    # Detectar columnas
+                    url_col_options = [c for c in hierarchy_df.columns if 'url' in c.lower()]
+                    if not url_col_options:
+                        url_col_options = list(hierarchy_df.columns)
+
+                    hierarchy_url_col = st.selectbox(
+                        "Columna de URL en el archivo de jerarquía",
+                        options=url_col_options,
+                        key="structural_hierarchy_url_col"
+                    )
+
+                    # Detectar columnas de jerarquía
+                    hierarchy_level_cols = st.multiselect(
+                        "Columnas de niveles jerárquicos (en orden)",
+                        options=[c for c in hierarchy_df.columns if c != hierarchy_url_col],
+                        default=[c for c in hierarchy_df.columns if 'nivel' in c.lower() or 'level' in c.lower() or 'categoria' in c.lower()],
+                        key="structural_hierarchy_level_cols"
+                    )
+
+                    parent_col_options = ['(Ninguna)'] + [c for c in hierarchy_df.columns if c != hierarchy_url_col]
+                    parent_col = st.selectbox(
+                        "Columna de URL padre (opcional)",
+                        options=parent_col_options,
+                        key="structural_hierarchy_parent_col"
+                    )
+
+                    if st.button("✅ Aplicar jerarquía", key="apply_hierarchy"):
+                        # Crear columna de jerarquía combinada
+                        if hierarchy_level_cols:
+                            hierarchy_df['_jerarquia_combinada'] = hierarchy_df[hierarchy_level_cols].fillna('').agg(' > '.join, axis=1)
+                            hierarchy_df['_jerarquia_combinada'] = hierarchy_df['_jerarquia_combinada'].str.strip(' > ')
+
+                        # Guardar en session state
+                        st.session_state["structural_hierarchy_df"] = hierarchy_df
+                        st.session_state["structural_hierarchy_url_col"] = hierarchy_url_col
+                        st.session_state["structural_hierarchy_level_cols"] = hierarchy_level_cols
+                        st.session_state["structural_hierarchy_parent_col"] = parent_col if parent_col != '(Ninguna)' else None
+
+                        st.success("✅ Jerarquía aplicada. Ahora puedes generar enlaces estructurales.")
+                        st.rerun()
+
+                except Exception as e:
+                    st.error(f"Error al cargar archivo: {e}")
+
+            # Mostrar estado si ya hay jerarquía cargada
+            if st.session_state.get("structural_hierarchy_df") is not None:
+                st.info(f"📊 Jerarquía cargada: {len(st.session_state['structural_hierarchy_df'])} registros")
+                if st.button("🗑️ Limpiar jerarquía cargada", key="clear_hierarchy"):
+                    st.session_state["structural_hierarchy_df"] = None
+                    st.rerun()
+
+        st.markdown("---")
+
+        # ====================================================================
+        # CONFIGURACIÓN DE JERARQUÍA
+        # ====================================================================
+        st.markdown("**Fuente de jerarquía**")
+
+        hierarchy_source = st.radio(
+            "¿De dónde obtener la jerarquía?",
+            options=[
+                "Extraer de URLs automáticamente",
+                "Usar columna del CSV principal",
+                "Usar Excel de jerarquía cargado"
+            ],
+            key="linking_structural_hierarchy_source",
+            horizontal=True
         )
 
         hierarchy_column = None
-        if use_custom_hierarchy:
+        use_loaded_hierarchy = False
+
+        if hierarchy_source == "Usar columna del CSV principal":
             hierarchy_candidates = list(processed_df.columns)
             hierarchy_column = st.selectbox(
-                "Columna de jerarquía custom",
+                "Columna de jerarquía/categoría",
                 options=hierarchy_candidates,
                 key="linking_structural_hierarchy_column"
             )
+        elif hierarchy_source == "Usar Excel de jerarquía cargado":
+            if st.session_state.get("structural_hierarchy_df") is None:
+                st.warning("⚠️ Primero carga un Excel de jerarquía en la sección de arriba")
+            else:
+                use_loaded_hierarchy = True
+                st.success("✅ Usando jerarquía cargada")
 
         st.markdown("**Parámetros de enlazado estructural**")
         param_col1, param_col2, param_col3 = st.columns(3)
@@ -881,10 +1056,30 @@ def render_linking_lab() -> None:
         if st.button("🚀 Generar recomendaciones estructurales", key="linking_structural_run"):
             with st.spinner("Calculando enlaces estructurales basados en jerarquía..."):
                 try:
+                    # Preparar DataFrame con jerarquía si se cargó un Excel
+                    df_to_use = processed_df.copy()
+
+                    if use_loaded_hierarchy and st.session_state.get("structural_hierarchy_df") is not None:
+                        # Unir con el Excel de jerarquía cargado
+                        hierarchy_df = st.session_state["structural_hierarchy_df"]
+                        hierarchy_url_col = st.session_state.get("structural_hierarchy_url_col", "URL")
+                        hierarchy_level_cols = st.session_state.get("structural_hierarchy_level_cols", [])
+
+                        if '_jerarquia_combinada' in hierarchy_df.columns:
+                            # Unir por URL
+                            df_to_use = df_to_use.merge(
+                                hierarchy_df[[hierarchy_url_col, '_jerarquia_combinada']],
+                                left_on=url_column,
+                                right_on=hierarchy_url_col,
+                                how='left'
+                            )
+                            hierarchy_column = '_jerarquia_combinada'
+                            st.info(f"📊 Jerarquía aplicada a {df_to_use['_jerarquia_combinada'].notna().sum()} de {len(df_to_use)} URLs")
+
                     report_df = structural_taxonomy_linking(
-                        df=processed_df,
+                        df=df_to_use,
                         url_column=url_column,
-                        hierarchy_column=hierarchy_column if use_custom_hierarchy else None,
+                        hierarchy_column=hierarchy_column,
                         depth=int(url_depth),
                         max_links_per_parent=int(max_links_per_parent),
                         include_horizontal=include_horizontal,
