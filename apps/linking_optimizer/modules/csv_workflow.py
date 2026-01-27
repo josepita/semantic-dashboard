@@ -25,7 +25,7 @@ from modules.knowledge_graph import (
     build_entity_payload_from_doc_relations,
     generate_knowledge_graph_html_v2,
 )
-from modules.linking_lab import (
+from apps.content_analyzer.modules.shared.content_utils import (
     detect_embedding_columns,
     detect_url_columns,
     preprocess_embeddings,

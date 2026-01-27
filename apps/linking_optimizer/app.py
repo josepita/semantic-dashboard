@@ -38,7 +38,7 @@ if str(modules_path) not in sys.path:
 
 # Importar módulos
 from modules.csv_workflow import render_csv_workflow
-from modules.linking_lab import render_linking_lab
+from app_sections.linking_lab import render_linking_lab
 
 # Import con manejo de errores
 try:
