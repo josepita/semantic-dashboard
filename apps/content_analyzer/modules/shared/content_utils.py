@@ -609,6 +609,185 @@ def generate_contextual_anchor(page_type: str, silo_value: str, url: str) -> str
 
 
 # ============================================================================
+# DETECCIÓN DE PÁGINAS NO ENLAZABLES
+# ============================================================================
+
+# Patrones de URL que indican páginas de navegación/listado (no deberían recibir enlaces)
+NON_LINKABLE_URL_PATTERNS = [
+    # Categorías y taxonomías
+    r'/categor[iy]a?/',
+    r'/category/',
+    r'/tag/',
+    r'/etiqueta/',
+    r'/tags/',
+    r'/archivo/',
+    r'/archive/',
+    # Paginación
+    r'/page/\d+',
+    r'/pagina/\d+',
+    r'\?page=',
+    r'\?paged=',
+    r'/p/\d+$',
+    # Tienda/ecommerce - listados
+    r'/shop/$',
+    r'/tienda/$',
+    r'/store/$',
+    r'/productos/$',
+    r'/products/$',
+    r'/collections/',
+    r'/colecciones/',
+    # Blog - índices
+    r'/blog/$',
+    r'/noticias/$',
+    r'/news/$',
+    r'/articles/$',
+    r'/articulos/$',
+    # Búsqueda y filtros
+    r'/search',
+    r'/buscar',
+    r'/busqueda',
+    r'\?s=',
+    r'\?q=',
+    r'\?filter',
+    r'\?ordenar',
+    r'\?sort',
+    # Autor/fecha
+    r'/author/',
+    r'/autor/',
+    r'/\d{4}/\d{2}/$',  # /2024/01/ (archivos por fecha)
+    # Legal/utilidad
+    r'/politica-',
+    r'/privacy',
+    r'/legal/',
+    r'/terminos',
+    r'/terms',
+    r'/cookie',
+    r'/aviso-legal',
+    # Otros
+    r'/feed/',
+    r'/rss/',
+    r'/sitemap',
+    r'/wp-content/',
+    r'/wp-admin/',
+]
+
+# Tipos de página que típicamente no deberían recibir enlaces
+NON_LINKABLE_PAGE_TYPES = [
+    'categoria', 'categoría', 'category',
+    'tag', 'etiqueta',
+    'archivo', 'archive',
+    'indice', 'índice', 'index',
+    'listado', 'listing',
+    'paginacion', 'paginación', 'pagination',
+    'busqueda', 'búsqueda', 'search',
+    'legal', 'privacidad', 'privacy',
+    'navegacion', 'navegación', 'navigation',
+]
+
+
+def detect_non_linkable_pages(
+    df: pd.DataFrame,
+    url_column: str,
+    type_column: Optional[str] = None,
+    custom_patterns: Optional[List[str]] = None,
+    custom_types: Optional[List[str]] = None,
+) -> pd.Series:
+    """
+    Detecta páginas que no deberían recibir enlaces internos.
+
+    Analiza URLs y tipos de página para identificar:
+    - Páginas de categoría/listado
+    - Paginaciones
+    - Páginas de búsqueda
+    - Páginas legales/utilidad
+
+    Args:
+        df: DataFrame con los datos
+        url_column: Nombre de la columna de URLs
+        type_column: Nombre de la columna de tipo de página (opcional)
+        custom_patterns: Patrones de URL adicionales a excluir
+        custom_types: Tipos de página adicionales a excluir
+
+    Returns:
+        Serie booleana donde True = página NO enlazable
+
+    Example:
+        >>> df['no_enlazar'] = detect_non_linkable_pages(df, 'URL', 'Tipo')
+        >>> df_enlazables = df[~df['no_enlazar']]
+    """
+    # Combinar patrones
+    patterns = NON_LINKABLE_URL_PATTERNS.copy()
+    if custom_patterns:
+        patterns.extend(custom_patterns)
+
+    # Crear regex combinada
+    combined_pattern = '|'.join(f'({p})' for p in patterns)
+
+    # Detectar por URL
+    urls = df[url_column].astype(str).str.lower()
+    is_non_linkable = urls.str.contains(combined_pattern, regex=True, na=False)
+
+    # Detectar por tipo de página si existe la columna
+    if type_column and type_column in df.columns:
+        types_to_exclude = [t.lower() for t in NON_LINKABLE_PAGE_TYPES]
+        if custom_types:
+            types_to_exclude.extend([t.lower() for t in custom_types])
+
+        page_types = df[type_column].astype(str).str.lower().str.strip()
+        is_non_linkable_type = page_types.isin(types_to_exclude)
+
+        # Combinar ambos criterios (OR)
+        is_non_linkable = is_non_linkable | is_non_linkable_type
+
+    return is_non_linkable
+
+
+def get_linkable_page_stats(
+    df: pd.DataFrame,
+    url_column: str,
+    type_column: Optional[str] = None,
+) -> Dict[str, any]:
+    """
+    Obtiene estadísticas sobre páginas enlazables vs no enlazables.
+
+    Returns:
+        Diccionario con estadísticas
+    """
+    non_linkable = detect_non_linkable_pages(df, url_column, type_column)
+
+    total = len(df)
+    non_linkable_count = non_linkable.sum()
+    linkable_count = total - non_linkable_count
+
+    # Analizar razones de exclusión
+    urls = df[url_column].astype(str).str.lower()
+    reasons = {}
+
+    reason_patterns = {
+        'Categorías/Tags': r'/categor|/tag/|/etiqueta/',
+        'Paginación': r'/page/|/pagina/|\?page',
+        'Tienda/Listados': r'/shop/|/tienda/|/products/|/collections/',
+        'Blog/Índices': r'/blog/$|/noticias/$|/news/$',
+        'Búsqueda': r'/search|/buscar|\?s=|\?q=',
+        'Legal/Utilidad': r'/privacy|/legal|/cookie|/terms',
+        'Archivos/Fechas': r'/archive|/\d{4}/\d{2}/$',
+    }
+
+    for reason, pattern in reason_patterns.items():
+        count = urls.str.contains(pattern, regex=True, na=False).sum()
+        if count > 0:
+            reasons[reason] = count
+
+    return {
+        'total_pages': total,
+        'linkable_pages': linkable_count,
+        'non_linkable_pages': non_linkable_count,
+        'linkable_percentage': round(linkable_count / total * 100, 1) if total > 0 else 0,
+        'exclusion_reasons': reasons,
+    }
+
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -631,4 +810,9 @@ __all__ = [
     "suggest_anchor_from_url",
     "format_topic_label",
     "generate_contextual_anchor",
+    # Páginas no enlazables
+    "detect_non_linkable_pages",
+    "get_linkable_page_stats",
+    "NON_LINKABLE_URL_PATTERNS",
+    "NON_LINKABLE_PAGE_TYPES",
 ]

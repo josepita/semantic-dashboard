@@ -16,6 +16,8 @@ from apps.content_analyzer.modules.shared.content_utils import (
     detect_url_columns,
     detect_page_type_columns,
     preprocess_embeddings,
+    detect_non_linkable_pages,
+    get_linkable_page_stats,
 )
 
 # Import linking algorithms and utilities
@@ -178,6 +180,93 @@ def render_linking_lab() -> None:
                 st.session_state["linking_existing_edges"] = None
                 st.success("Enlaces existentes eliminados.")
                 st.rerun()
+
+    st.markdown("---")
+
+    # ========================================================================
+    # SECCIÓN: FILTRADO DE PÁGINAS NO ENLAZABLES
+    # ========================================================================
+    with st.expander("🚫 Filtrar páginas no enlazables (categorías, paginación, etc.)", expanded=False):
+        st.caption(
+            "Detecta automáticamente páginas que **no deberían recibir enlaces internos**: "
+            "categorías, tags, paginación, páginas de búsqueda, listados de tienda, etc."
+        )
+
+        type_column_for_filter = st.session_state.get("page_type_column")
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            # Patrones personalizados adicionales
+            custom_patterns_input = st.text_input(
+                "Patrones de URL adicionales a excluir (regex, separados por coma)",
+                placeholder="/mi-categoria/, /ofertas/, /promociones/",
+                help="Añade patrones de URL específicos de tu sitio que no deban recibir enlaces"
+            )
+        with col2:
+            # Tipos personalizados adicionales
+            custom_types_input = st.text_input(
+                "Tipos de página adicionales a excluir",
+                placeholder="landing, oferta, promo",
+                help="Tipos de página específicos a excluir"
+            )
+
+        # Parsear inputs
+        custom_patterns = [p.strip() for p in custom_patterns_input.split(',') if p.strip()] if custom_patterns_input else None
+        custom_types = [t.strip() for t in custom_types_input.split(',') if t.strip()] if custom_types_input else None
+
+        if st.button("🔍 Analizar páginas no enlazables", key="analyze_non_linkable"):
+            with st.spinner("Analizando URLs..."):
+                stats = get_linkable_page_stats(processed_df, url_column, type_column_for_filter)
+
+                # Mostrar estadísticas
+                col_stat1, col_stat2, col_stat3 = st.columns(3)
+                with col_stat1:
+                    st.metric("Total páginas", stats['total_pages'])
+                with col_stat2:
+                    st.metric("✅ Enlazables", stats['linkable_pages'],
+                              delta=f"{stats['linkable_percentage']}%")
+                with col_stat3:
+                    st.metric("🚫 No enlazables", stats['non_linkable_pages'])
+
+                # Mostrar razones de exclusión
+                if stats['exclusion_reasons']:
+                    st.markdown("**Razones de exclusión detectadas:**")
+                    for reason, count in sorted(stats['exclusion_reasons'].items(), key=lambda x: -x[1]):
+                        st.write(f"- {reason}: {count} páginas")
+
+                # Guardar en session state para filtrar
+                non_linkable_mask = detect_non_linkable_pages(
+                    processed_df, url_column, type_column_for_filter, custom_patterns, custom_types
+                )
+                st.session_state["non_linkable_mask"] = non_linkable_mask
+
+        # Mostrar opción de filtrar si ya se analizó
+        if st.session_state.get("non_linkable_mask") is not None:
+            non_linkable_mask = st.session_state["non_linkable_mask"]
+            non_linkable_count = non_linkable_mask.sum()
+
+            if non_linkable_count > 0:
+                st.warning(f"⚠️ Se detectaron **{non_linkable_count}** páginas no enlazables")
+
+                # Mostrar ejemplos
+                with st.expander("Ver ejemplos de páginas detectadas"):
+                    examples = processed_df[non_linkable_mask][url_column].head(20).tolist()
+                    for url in examples:
+                        st.text(f"🚫 {url}")
+
+                # Opción de aplicar filtro
+                apply_filter = st.checkbox(
+                    "✅ Excluir estas páginas como destino de enlaces",
+                    value=st.session_state.get("apply_non_linkable_filter", False),
+                    key="apply_non_linkable_filter_cb",
+                    help="Las páginas detectadas no recibirán enlaces, pero sí podrán ser origen"
+                )
+                st.session_state["apply_non_linkable_filter"] = apply_filter
+
+                if apply_filter:
+                    st.success(f"✅ Filtro activo: {non_linkable_count} páginas excluidas como destino")
+            else:
+                st.success("✅ No se detectaron páginas no enlazables con los criterios actuales")
 
     st.markdown("---")
 
