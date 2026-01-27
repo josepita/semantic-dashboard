@@ -306,8 +306,8 @@ def render_linking_lab() -> None:
                 st.dataframe(report_df, use_container_width=True)
                 download_dataframe_button(
                     report_df,
-                    filename_prefix="linking_basic_recommendations",
-                    button_label="📥 Descargar recomendaciones básicas"
+                    filename="linking_basic_recommendations.xlsx",
+                    label="📥 Descargar recomendaciones básicas"
                 )
 
     # ========================================================================
@@ -449,8 +449,8 @@ def render_linking_lab() -> None:
                 st.dataframe(report_df, use_container_width=True)
                 download_dataframe_button(
                     report_df,
-                    filename_prefix="linking_advanced_recommendations",
-                    button_label="📥 Descargar recomendaciones avanzadas"
+                    filename="linking_advanced_recommendations.xlsx",
+                    label="📥 Descargar recomendaciones avanzadas"
                 )
 
                 # Mostrar páginas huérfanas
@@ -702,8 +702,8 @@ def render_linking_lab() -> None:
                 st.dataframe(report_df, use_container_width=True)
                 download_dataframe_button(
                     report_df,
-                    filename_prefix="linking_hybrid_cls_recommendations",
-                    button_label="📥 Descargar recomendaciones híbridas (CLS)"
+                    filename="linking_hybrid_cls_recommendations.xlsx",
+                    label="📥 Descargar recomendaciones híbridas (CLS)"
                 )
 
                 # Mostrar páginas huérfanas
@@ -821,8 +821,8 @@ def render_linking_lab() -> None:
 
             download_dataframe_button(
                 report_df,
-                filename_prefix="linking_structural_recommendations",
-                button_label="📥 Descargar recomendaciones estructurales"
+                filename="linking_structural_recommendations.xlsx",
+                label="📥 Descargar recomendaciones estructurales"
             )
 
     # ========================================================================
