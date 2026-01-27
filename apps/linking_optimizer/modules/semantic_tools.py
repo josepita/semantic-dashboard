@@ -189,6 +189,14 @@ def top_n_by_group(df: pd.DataFrame, group_column: str, score_column: str, n: in
     )
 
 
+def _clean_illegal_excel_chars(text: str) -> str:
+    """Elimina caracteres ilegales para Excel (caracteres de control excepto tab, newline, CR)."""
+    import re
+    # Caracteres ilegales: 0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F
+    ILLEGAL_CHARS_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+    return ILLEGAL_CHARS_RE.sub('', text)
+
+
 def download_dataframe_button(df: pd.DataFrame, filename: str, label: str) -> None:
     if df.empty:
         st.info("No hay datos disponibles para descargar.")
@@ -197,8 +205,14 @@ def download_dataframe_button(df: pd.DataFrame, filename: str, label: str) -> No
     if filename.endswith(".csv"):
         buffer.write(df.to_csv(index=False).encode("utf-8"))
     else:
+        # Limpiar caracteres ilegales para Excel
+        df_clean = df.copy()
+        for col in df_clean.select_dtypes(include=['object']).columns:
+            df_clean[col] = df_clean[col].apply(
+                lambda x: _clean_illegal_excel_chars(str(x)) if pd.notna(x) else x
+            )
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False)
+            df_clean.to_excel(writer, index=False)
     buffer.seek(0)
     st.download_button(label=label, data=buffer, file_name=filename, mime="application/octet-stream")
 
