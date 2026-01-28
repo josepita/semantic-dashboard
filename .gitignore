@@ -76,9 +76,12 @@ coverage.xml
 .dmypy.json
 dmypy.json
 
+# User project data (local only)
+workspace/projects/
+
 # OAuth credentials (per-project) - Fase 3
-workspace/projects/*/oauth/
-workspace/projects/*/.encryption_key
+# workspace/projects/*/oauth/
+# workspace/projects/*/.encryption_key
 
 # DuckDB temporary files
 *.duckdb-wal
@@ -97,3 +100,35 @@ nginx/ssl/*.pem
 workspace/exports/*.zip
 *.tar.gz
 backups/
+
+# Temporary development files
+temp_*.py
+temp_*.txt
+*_backup.py
+clean_file.py
+extract_tabs.py
+old_block.txt
+new_block.txt
+ve
+
+# HTML reports (local only)
+*.html
+
+# Large binary files
+*.whl
+*.zip
+
+# Spacy virtual environments
+.venv_spacy/
+.venv_spacy311/
+
+# Claude Code session files
+.claude/
+
+# Temporary directories
+_tmp_*/
+Nueva carpeta/
+SemanticKeyword/
+
+# Test files (local development only)
+test_*.py

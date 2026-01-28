@@ -18,6 +18,9 @@ from apps.content_analyzer.modules.shared.content_utils import (
     preprocess_embeddings,
     detect_non_linkable_pages,
     get_linkable_page_stats,
+    load_screaming_frog_internal_links,
+    get_existing_links_set,
+    filter_new_link_recommendations,
 )
 
 # Import linking algorithms and utilities
@@ -32,6 +35,10 @@ from apps.linking_optimizer.modules import (
     build_entity_payload_from_doc_relations,
     build_linking_reports_payload,
     interpret_linking_reports_with_gemini,
+    # Batch processing
+    estimate_memory_usage,
+    AUTO_BATCH_THRESHOLD,
+    DEFAULT_CHUNK_SIZE,
 )
 
 def render_linking_lab() -> None:
@@ -118,13 +125,48 @@ def render_linking_lab() -> None:
     st.markdown("---")
     st.caption(f"Dataset activo: **{len(processed_df)}** filas | Columna URL: **{url_column}**")
 
+    # Advertencia para datasets grandes
+    if len(processed_df) > AUTO_BATCH_THRESHOLD:
+        memory_info = estimate_memory_usage(len(processed_df))
+        with st.expander("⚠️ Dataset grande detectado - Ver opciones de rendimiento", expanded=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("URLs totales", f"{len(processed_df):,}")
+            with col2:
+                st.metric("Memoria estimada", f"{memory_info['total_estimated_mb']:.0f} MB")
+            with col3:
+                st.metric("Procesamiento", "Por lotes")
+
+            st.info(
+                "📊 **Modo de procesamiento por lotes activado automáticamente.** "
+                "Los algoritmos procesarán las URLs en grupos para evitar problemas de memoria."
+            )
+
+            batch_size = st.slider(
+                "Tamaño del lote (URLs por iteración)",
+                min_value=100,
+                max_value=5000,
+                value=DEFAULT_CHUNK_SIZE,
+                step=100,
+                key="global_batch_size",
+                help="Lotes más pequeños = menos memoria pero más lento. Lotes más grandes = más rápido pero más memoria."
+            )
+            st.session_state["linking_batch_size"] = batch_size
+    else:
+        st.session_state["linking_batch_size"] = None  # No usar batch para datasets pequeños
+
     # Sección de configuración de enlaces existentes (inlinks)
-    with st.expander("⚙️ Configurar enlaces existentes (opcional - mejora PageRank)", expanded=False):
-        st.caption(
-            "Sube un archivo CSV/Excel con tus enlaces internos existentes. Esto mejorará el cálculo de PageRank "
-            "y evitará recomendar enlaces que ya tienes. Formato requerido: columnas 'source' (URL origen) y "
-            "'target' (URL destino). Opcionalmente: 'weight' (peso del enlace, por defecto 1.0)."
-        )
+    with st.expander("⚙️ Cargar enlaces existentes (Screaming Frog / CSV)", expanded=False):
+        st.markdown("""
+        **Carga tus enlaces internos existentes** para:
+        - Evitar recomendar enlaces que ya tienes
+        - Mejorar el cálculo de PageRank con datos reales
+
+        **Formatos soportados:**
+        - Exportación de Screaming Frog (`internal_all.csv`, `all_inlinks.csv`)
+        - Cualquier CSV/Excel con columnas de origen y destino
+        """)
+
         inlinks_upload = st.file_uploader(
             "Archivo de enlaces existentes",
             type=["csv", "xlsx", "xls"],
@@ -133,50 +175,100 @@ def render_linking_lab() -> None:
         )
         if inlinks_upload:
             try:
+                # Cargar archivo
                 if inlinks_upload.name.lower().endswith(".csv"):
-                    inlinks_df = pd.read_csv(inlinks_upload)
+                    raw_df = pd.read_csv(inlinks_upload)
                 else:
-                    inlinks_df = pd.read_excel(inlinks_upload)
+                    raw_df = pd.read_excel(inlinks_upload)
 
-                # Validar columnas requeridas
-                if "source" not in inlinks_df.columns or "target" not in inlinks_df.columns:
-                    st.error("El archivo debe contener columnas 'source' y 'target'.")
-                else:
-                    # Procesar enlaces
-                    inlinks_df["source"] = inlinks_df["source"].astype(str).str.strip()
-                    inlinks_df["target"] = inlinks_df["target"].astype(str).str.strip()
+                st.info(f"📄 Archivo cargado: {len(raw_df)} filas, {len(raw_df.columns)} columnas")
 
-                    # Añadir weight si no existe
-                    if "weight" not in inlinks_df.columns:
-                        inlinks_df["weight"] = 1.0
-                    else:
-                        inlinks_df["weight"] = pd.to_numeric(inlinks_df["weight"], errors="coerce").fillna(1.0)
+                # Mostrar columnas disponibles
+                with st.expander("Ver columnas del archivo"):
+                    st.write(list(raw_df.columns))
 
-                    # Filtrar enlaces válidos
-                    inlinks_df = inlinks_df[
-                        (inlinks_df["source"].str.len() > 0) &
-                        (inlinks_df["target"].str.len() > 0) &
-                        (inlinks_df["source"] != inlinks_df["target"])
-                    ]
+                # Opción de especificar columnas manualmente o auto-detectar
+                use_auto_detect = st.checkbox(
+                    "Auto-detectar columnas (Screaming Frog)",
+                    value=True,
+                    key="inlinks_auto_detect"
+                )
 
-                    if inlinks_df.empty:
-                        st.warning("No se encontraron enlaces válidos en el archivo.")
-                    else:
-                        st.session_state["linking_existing_edges"] = [
-                            (row["source"], row["target"], row["weight"])
-                            for _, row in inlinks_df.iterrows()
-                        ]
-                        st.success(f"✅ {len(inlinks_df)} enlaces existentes cargados correctamente.")
-                        st.dataframe(inlinks_df.head(10), use_container_width=True)
+                source_col_input = None
+                target_col_input = None
+
+                if not use_auto_detect:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        source_col_input = st.selectbox(
+                            "Columna de URL origen",
+                            options=list(raw_df.columns),
+                            key="inlinks_source_col"
+                        )
+                    with col2:
+                        target_col_input = st.selectbox(
+                            "Columna de URL destino",
+                            options=list(raw_df.columns),
+                            key="inlinks_target_col"
+                        )
+
+                filter_nofollow = st.checkbox(
+                    "Filtrar enlaces nofollow",
+                    value=True,
+                    key="inlinks_filter_nofollow"
+                )
+
+                if st.button("📥 Procesar enlaces", key="process_inlinks"):
+                    try:
+                        inlinks_df, messages = load_screaming_frog_internal_links(
+                            raw_df,
+                            source_column=source_col_input,
+                            target_column=target_col_input,
+                            filter_follow_only=filter_nofollow,
+                        )
+
+                        for msg in messages:
+                            st.info(msg)
+
+                        if not inlinks_df.empty:
+                            # Guardar DataFrame y set de enlaces
+                            st.session_state["linking_existing_links_df"] = inlinks_df
+                            st.session_state["linking_existing_links_set"] = get_existing_links_set(inlinks_df)
+
+                            # También crear formato de edges para PageRank
+                            st.session_state["linking_existing_edges"] = [
+                                (row["source_url"], row["target_url"], 1.0)
+                                for _, row in inlinks_df.iterrows()
+                            ]
+
+                            st.success(f"✅ {len(inlinks_df)} enlaces internos procesados correctamente")
+                            st.dataframe(inlinks_df.head(15), use_container_width=True)
+                        else:
+                            st.warning("No se encontraron enlaces válidos.")
+
+                    except Exception as exc:
+                        st.error(f"Error al procesar enlaces: {exc}")
 
             except Exception as exc:  # noqa: BLE001
-                st.error(f"Error al leer el archivo de enlaces: {exc}")
+                st.error(f"Error al leer el archivo: {exc}")
 
-        # Opción para limpiar enlaces existentes
-        if st.session_state.get("linking_existing_edges"):
-            num_edges = len(st.session_state["linking_existing_edges"])
-            st.info(f"📊 {num_edges} enlaces existentes en memoria")
+        # Mostrar estado y opción para limpiar
+        if st.session_state.get("linking_existing_links_set"):
+            num_links = len(st.session_state["linking_existing_links_set"])
+            st.success(f"📊 **{num_links} enlaces existentes en memoria** - se excluirán de las recomendaciones")
+
+            # Estadísticas de enlaces
+            if st.session_state.get("linking_existing_links_df") is not None:
+                links_df = st.session_state["linking_existing_links_df"]
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("URLs origen únicas", links_df['source_url'].nunique())
+                with col2:
+                    st.metric("URLs destino únicas", links_df['target_url'].nunique())
+
             if st.button("🗑️ Limpiar enlaces existentes", key="linking_clear_inlinks"):
+                st.session_state["linking_existing_links_df"] = None
+                st.session_state["linking_existing_links_set"] = None
                 st.session_state["linking_existing_edges"] = None
                 st.success("Enlaces existentes eliminados.")
                 st.rerun()
@@ -386,8 +478,31 @@ def render_linking_lab() -> None:
                 elif not primary_targets and not secondary_targets:
                     st.error("Selecciona al menos un tipo de página objetivo (prioritario o secundario).")
                 else:
+                    # Crear placeholder para progreso
+                    progress_placeholder = st.empty()
+                    status_placeholder = st.empty()
+
+                    def update_progress(current, total, message):
+                        progress_placeholder.progress(current / total if total > 0 else 0)
+                        status_placeholder.caption(message)
+
                     with st.spinner("Calculando recomendaciones semánticas básicas..."):
                         try:
+                            # Preparar máscaras de exclusión
+                            exclude_source_mask = None
+                            exclude_target_mask = None
+                            non_linkable = st.session_state.get("non_linkable_mask")
+
+                            if non_linkable is not None:
+                                if st.session_state.get("exclude_non_linkable_as_source", False):
+                                    exclude_source_mask = non_linkable
+                                if st.session_state.get("exclude_non_linkable_as_target", False):
+                                    exclude_target_mask = non_linkable
+
+                            # Configuración de batch
+                            batch_size = st.session_state.get("linking_batch_size")
+                            use_batch = batch_size is not None
+
                             report_df = semantic_link_recommendations(
                                 df=processed_df,
                                 url_column=url_column,
@@ -400,7 +515,26 @@ def render_linking_lab() -> None:
                                 max_primary=int(max_primary),
                                 max_secondary=int(max_secondary),
                                 source_limit=int(source_limit) if source_limit > 0 else None,
+                                exclude_as_source_mask=exclude_source_mask,
+                                exclude_as_target_mask=exclude_target_mask,
+                                use_batch=use_batch,
+                                batch_size=batch_size or DEFAULT_CHUNK_SIZE,
+                                progress_callback=update_progress if use_batch else None,
                             )
+
+                            # Limpiar placeholders de progreso
+                            progress_placeholder.empty()
+                            status_placeholder.empty()
+
+                            # Filtrar enlaces existentes si están cargados
+                            existing_links = st.session_state.get("linking_existing_links_set")
+                            if existing_links and len(report_df) > 0:
+                                report_df, excluded_count = filter_new_link_recommendations(
+                                    report_df, existing_links, "Origen URL", "Destino Sugerido URL"
+                                )
+                                if excluded_count > 0:
+                                    st.info(f"ℹ️ Se excluyeron {excluded_count} enlaces que ya existen")
+
                             st.session_state["linking_basic_report"] = report_df
                             st.success(f"✅ {len(report_df)} recomendaciones generadas.")
                         except Exception as exc:  # noqa: BLE001
@@ -526,6 +660,17 @@ def render_linking_lab() -> None:
                 else:
                     with st.spinner("Calculando recomendaciones semánticas avanzadas con silos..."):
                         try:
+                            # Preparar máscaras de exclusión
+                            exclude_source_mask = None
+                            exclude_target_mask = None
+                            non_linkable = st.session_state.get("non_linkable_mask")
+
+                            if non_linkable is not None:
+                                if st.session_state.get("exclude_non_linkable_as_source", False):
+                                    exclude_source_mask = non_linkable
+                                if st.session_state.get("exclude_non_linkable_as_target", False):
+                                    exclude_target_mask = non_linkable
+
                             report_df, orphan_urls = advanced_semantic_linking(
                                 df=processed_df,
                                 url_column=url_column,
@@ -540,7 +685,19 @@ def render_linking_lab() -> None:
                                 silo_depth=int(silo_depth),
                                 silo_boost=float(silo_boost),
                                 source_limit=int(source_limit_adv) if source_limit_adv > 0 else None,
+                                exclude_as_source_mask=exclude_source_mask,
+                                exclude_as_target_mask=exclude_target_mask,
                             )
+
+                            # Filtrar enlaces existentes si están cargados
+                            existing_links = st.session_state.get("linking_existing_links_set")
+                            if existing_links and len(report_df) > 0:
+                                report_df, excluded_count = filter_new_link_recommendations(
+                                    report_df, existing_links, "Origen URL", "Destino URL"
+                                )
+                                if excluded_count > 0:
+                                    st.info(f"ℹ️ Se excluyeron {excluded_count} enlaces que ya existen")
+
                             st.session_state["linking_adv_report"] = report_df
                             st.session_state["linking_adv_orphans"] = orphan_urls
                             st.success(f"✅ {len(report_df)} recomendaciones generadas.")
@@ -768,6 +925,17 @@ def render_linking_lab() -> None:
 
                     with st.spinner("Calculando Composite Link Score (CLS) con PageRank y entidades..."):
                         try:
+                            # Preparar máscaras de exclusión
+                            exclude_source_mask = None
+                            exclude_target_mask = None
+                            non_linkable = st.session_state.get("non_linkable_mask")
+
+                            if non_linkable is not None:
+                                if st.session_state.get("exclude_non_linkable_as_source", False):
+                                    exclude_source_mask = non_linkable
+                                if st.session_state.get("exclude_non_linkable_as_target", False):
+                                    exclude_target_mask = non_linkable
+
                             # Obtener enlaces existentes si están configurados
                             existing_edges = st.session_state.get("linking_existing_edges")
 
@@ -790,7 +958,19 @@ def render_linking_lab() -> None:
                                 top_k_edges=int(top_k_edges),
                                 source_limit=int(source_limit_hybrid) if source_limit_hybrid > 0 else None,
                                 existing_edges=existing_edges,
+                                exclude_as_source_mask=exclude_source_mask,
+                                exclude_as_target_mask=exclude_target_mask,
                             )
+
+                            # Filtrar enlaces existentes adicionales si están cargados
+                            existing_links = st.session_state.get("linking_existing_links_set")
+                            if existing_links and len(report_df) > 0:
+                                report_df, excluded_count = filter_new_link_recommendations(
+                                    report_df, existing_links, "Origen URL", "Destino URL"
+                                )
+                                if excluded_count > 0:
+                                    st.info(f"ℹ️ Se excluyeron {excluded_count} enlaces que ya existen")
+
                             st.session_state["linking_hybrid_report"] = report_df
                             st.session_state["linking_hybrid_orphans"] = orphan_urls
                             st.session_state["linking_hybrid_pagerank"] = pagerank_scores
@@ -1076,6 +1256,17 @@ def render_linking_lab() -> None:
                             hierarchy_column = '_jerarquia_combinada'
                             st.info(f"📊 Jerarquía aplicada a {df_to_use['_jerarquia_combinada'].notna().sum()} de {len(df_to_use)} URLs")
 
+                    # Preparar máscaras de exclusión
+                    exclude_source_mask = None
+                    exclude_target_mask = None
+                    non_linkable = st.session_state.get("non_linkable_mask")
+
+                    if non_linkable is not None:
+                        if st.session_state.get("exclude_non_linkable_as_source", False):
+                            exclude_source_mask = non_linkable
+                        if st.session_state.get("exclude_non_linkable_as_target", False):
+                            exclude_target_mask = non_linkable
+
                     report_df = structural_taxonomy_linking(
                         df=df_to_use,
                         url_column=url_column,
@@ -1085,7 +1276,19 @@ def render_linking_lab() -> None:
                         include_horizontal=include_horizontal,
                         link_weight=float(link_weight),
                         use_semantic_priority=use_semantic_priority,
+                        exclude_as_source_mask=exclude_source_mask,
+                        exclude_as_target_mask=exclude_target_mask,
                     )
+
+                    # Filtrar enlaces existentes si están cargados
+                    existing_links = st.session_state.get("linking_existing_links_set")
+                    if existing_links and len(report_df) > 0:
+                        report_df, excluded_count = filter_new_link_recommendations(
+                            report_df, existing_links, "Origen URL", "Destino URL"
+                        )
+                        if excluded_count > 0:
+                            st.info(f"ℹ️ Se excluyeron {excluded_count} enlaces que ya existen")
+
                     st.session_state["linking_structural_report"] = report_df
                     st.success(f"✅ {len(report_df)} enlaces estructurales generados.")
                 except Exception as exc:  # noqa: BLE001

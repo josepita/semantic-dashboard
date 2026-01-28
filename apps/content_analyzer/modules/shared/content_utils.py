@@ -788,6 +788,271 @@ def get_linkable_page_stats(
 
 
 # ============================================================================
+# CARGA DE DATOS DE CRAWL (SCREAMING FROG)
+# ============================================================================
+
+# Mapeo de columnas conocidas de Screaming Frog a nombres estándar
+SCREAMING_FROG_COLUMN_MAPPINGS = {
+    # Columnas de origen
+    'source': 'source_url',
+    'from': 'source_url',
+    'source url': 'source_url',
+    'url origen': 'source_url',
+    'origen': 'source_url',
+    # Columnas de destino
+    'destination': 'target_url',
+    'dest': 'target_url',
+    'target': 'target_url',
+    'to': 'target_url',
+    'destination url': 'target_url',
+    'url destino': 'target_url',
+    'destino': 'target_url',
+    'href': 'target_url',
+    'link': 'target_url',
+    # Anchor text
+    'anchor': 'anchor_text',
+    'anchor text': 'anchor_text',
+    'text': 'anchor_text',
+    'link text': 'anchor_text',
+    'texto ancla': 'anchor_text',
+    # Tipo de enlace
+    'type': 'link_type',
+    'link type': 'link_type',
+    'tipo': 'link_type',
+    'tipo de enlace': 'link_type',
+    # Status
+    'status code': 'status_code',
+    'status': 'status_code',
+    'código estado': 'status_code',
+}
+
+
+def load_screaming_frog_internal_links(
+    file_path_or_df: any,
+    source_column: Optional[str] = None,
+    target_column: Optional[str] = None,
+    anchor_column: Optional[str] = None,
+    filter_follow_only: bool = True,
+) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Carga enlaces internos desde exportación de Screaming Frog.
+
+    Soporta múltiples formatos de exportación:
+    - internal_all.csv (reporte de enlaces internos)
+    - all_inlinks.csv (reporte de inlinks)
+    - Cualquier CSV con columnas de origen y destino
+
+    Args:
+        file_path_or_df: Ruta al archivo CSV o DataFrame ya cargado
+        source_column: Columna de URL origen (auto-detectada si None)
+        target_column: Columna de URL destino (auto-detectada si None)
+        anchor_column: Columna de anchor text (auto-detectada si None)
+        filter_follow_only: Si True, filtra solo enlaces follow (excluye nofollow)
+
+    Returns:
+        Tupla (DataFrame normalizado, lista de mensajes/warnings)
+
+    El DataFrame resultante tiene columnas:
+        - source_url: URL de la página que contiene el enlace
+        - target_url: URL de la página enlazada
+        - anchor_text: Texto del enlace (si disponible)
+
+    Example:
+        >>> links_df, messages = load_screaming_frog_internal_links("internal_all.csv")
+        >>> existing_links = set(zip(links_df['source_url'], links_df['target_url']))
+    """
+    messages: List[str] = []
+
+    # Cargar datos
+    if isinstance(file_path_or_df, pd.DataFrame):
+        df = file_path_or_df.copy()
+    else:
+        try:
+            # Intentar diferentes encodings comunes de Screaming Frog
+            for encoding in ['utf-8', 'latin-1', 'cp1252']:
+                try:
+                    df = pd.read_csv(file_path_or_df, encoding=encoding)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                raise ValueError(f"No se pudo leer el archivo con ningún encoding común")
+        except Exception as e:
+            raise ValueError(f"Error al cargar archivo: {str(e)}")
+
+    if df.empty:
+        return pd.DataFrame(columns=['source_url', 'target_url', 'anchor_text']), ["El archivo está vacío"]
+
+    # Normalizar nombres de columnas a minúsculas
+    df.columns = [str(col).lower().strip() for col in df.columns]
+    original_columns = df.columns.tolist()
+
+    # Auto-detectar columnas si no se especifican
+    def find_column(target_name: str, explicit_col: Optional[str]) -> Optional[str]:
+        """Busca columna por nombre explícito o por mapeo."""
+        if explicit_col:
+            explicit_lower = explicit_col.lower().strip()
+            if explicit_lower in df.columns:
+                return explicit_lower
+            messages.append(f"Columna '{explicit_col}' no encontrada")
+
+        # Buscar por mapeo
+        for original, mapped in SCREAMING_FROG_COLUMN_MAPPINGS.items():
+            if mapped == target_name and original in df.columns:
+                return original
+
+        return None
+
+    source_col = find_column('source_url', source_column)
+    target_col = find_column('target_url', target_column)
+    anchor_col = find_column('anchor_text', anchor_column)
+
+    # Validar columnas requeridas
+    if not source_col:
+        # Intentar usar primera columna como source
+        source_col = df.columns[0] if len(df.columns) > 0 else None
+        if source_col:
+            messages.append(f"Usando '{source_col}' como columna de origen (auto-detectada)")
+
+    if not target_col:
+        # Intentar usar segunda columna como target
+        target_col = df.columns[1] if len(df.columns) > 1 else None
+        if target_col:
+            messages.append(f"Usando '{target_col}' como columna de destino (auto-detectada)")
+
+    if not source_col or not target_col:
+        available = ", ".join(original_columns[:10])
+        raise ValueError(
+            f"No se encontraron columnas de origen/destino. "
+            f"Columnas disponibles: {available}"
+        )
+
+    # Crear DataFrame normalizado
+    result_df = pd.DataFrame({
+        'source_url': df[source_col].astype(str).str.strip(),
+        'target_url': df[target_col].astype(str).str.strip(),
+    })
+
+    # Añadir anchor si existe
+    if anchor_col:
+        result_df['anchor_text'] = df[anchor_col].astype(str).str.strip()
+    else:
+        result_df['anchor_text'] = ''
+
+    # Filtrar enlaces nofollow si se especifica
+    if filter_follow_only:
+        # Buscar columnas que indiquen tipo de enlace
+        type_cols = [col for col in df.columns if 'follow' in col or 'type' in col]
+        for type_col in type_cols:
+            type_values = df[type_col].astype(str).str.lower()
+            nofollow_mask = type_values.str.contains('nofollow', na=False)
+            if nofollow_mask.any():
+                before_count = len(result_df)
+                result_df = result_df[~nofollow_mask]
+                filtered_count = before_count - len(result_df)
+                if filtered_count > 0:
+                    messages.append(f"Filtrados {filtered_count} enlaces nofollow")
+                break
+
+    # Eliminar duplicados
+    before_dedup = len(result_df)
+    result_df = result_df.drop_duplicates(subset=['source_url', 'target_url'])
+    after_dedup = len(result_df)
+    if before_dedup != after_dedup:
+        messages.append(f"Eliminados {before_dedup - after_dedup} enlaces duplicados")
+
+    # Eliminar self-links
+    self_links = result_df['source_url'] == result_df['target_url']
+    if self_links.any():
+        result_df = result_df[~self_links]
+        messages.append(f"Eliminados {self_links.sum()} auto-enlaces")
+
+    messages.insert(0, f"Cargados {len(result_df)} enlaces internos únicos")
+
+    return result_df.reset_index(drop=True), messages
+
+
+def get_existing_links_set(
+    links_df: pd.DataFrame,
+    normalize_urls: bool = True,
+) -> set:
+    """
+    Convierte DataFrame de enlaces a set para búsqueda rápida.
+
+    Args:
+        links_df: DataFrame con columnas source_url y target_url
+        normalize_urls: Si True, normaliza URLs removiendo trailing slash
+
+    Returns:
+        Set de tuplas (source_url, target_url)
+
+    Example:
+        >>> links_df, _ = load_screaming_frog_internal_links("internal_all.csv")
+        >>> existing = get_existing_links_set(links_df)
+        >>> ("https://example.com/blog", "https://example.com/service") in existing
+        True
+    """
+    if links_df.empty:
+        return set()
+
+    source_urls = links_df['source_url'].astype(str)
+    target_urls = links_df['target_url'].astype(str)
+
+    if normalize_urls:
+        source_urls = source_urls.str.rstrip('/')
+        target_urls = target_urls.str.rstrip('/')
+
+    return set(zip(source_urls, target_urls))
+
+
+def filter_new_link_recommendations(
+    recommendations_df: pd.DataFrame,
+    existing_links: set,
+    source_col: str = 'Origen URL',
+    target_col: str = 'Destino URL',
+    normalize_urls: bool = True,
+) -> Tuple[pd.DataFrame, int]:
+    """
+    Filtra recomendaciones para excluir enlaces que ya existen.
+
+    Args:
+        recommendations_df: DataFrame con recomendaciones de enlaces
+        existing_links: Set de (source, target) de enlaces existentes
+        source_col: Nombre de columna origen en recommendations_df
+        target_col: Nombre de columna destino en recommendations_df
+        normalize_urls: Si True, normaliza URLs para comparación
+
+    Returns:
+        Tupla (DataFrame filtrado, número de enlaces excluidos)
+
+    Example:
+        >>> recs = semantic_link_recommendations(df, ...)
+        >>> existing = get_existing_links_set(crawl_df)
+        >>> new_recs, excluded = filter_new_link_recommendations(recs, existing)
+    """
+    if recommendations_df.empty or not existing_links:
+        return recommendations_df, 0
+
+    source_urls = recommendations_df[source_col].astype(str)
+    target_urls = recommendations_df[target_col].astype(str)
+
+    if normalize_urls:
+        source_urls = source_urls.str.rstrip('/')
+        target_urls = target_urls.str.rstrip('/')
+
+    # Marcar enlaces que ya existen
+    exists_mask = [
+        (src, tgt) in existing_links
+        for src, tgt in zip(source_urls, target_urls)
+    ]
+
+    filtered_df = recommendations_df[~pd.Series(exists_mask, index=recommendations_df.index)]
+    excluded_count = sum(exists_mask)
+
+    return filtered_df.reset_index(drop=True), excluded_count
+
+
+# ============================================================================
 # EXPORTS
 # ============================================================================
 
@@ -815,4 +1080,9 @@ __all__ = [
     "get_linkable_page_stats",
     "NON_LINKABLE_URL_PATTERNS",
     "NON_LINKABLE_PAGE_TYPES",
+    # Carga de crawl (Screaming Frog)
+    "load_screaming_frog_internal_links",
+    "get_existing_links_set",
+    "filter_new_link_recommendations",
+    "SCREAMING_FROG_COLUMN_MAPPINGS",
 ]

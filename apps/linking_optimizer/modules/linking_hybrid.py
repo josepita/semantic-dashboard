@@ -50,6 +50,8 @@ def hybrid_semantic_linking(
     source_limit: Optional[int] = None,
     top_k_edges: int = 5,
     existing_edges: Optional[Sequence[Tuple[str, str]]] = None,
+    exclude_as_source_mask: Optional[pd.Series] = None,
+    exclude_as_target_mask: Optional[pd.Series] = None,
 ) -> Tuple[pd.DataFrame, List[str], Dict[str, float]]:
     """
     Genera recomendaciones de enlaces internos combinando similitud semántica,
@@ -187,6 +189,12 @@ def hybrid_semantic_linking(
     primary_set = {str(t).strip() for t in primary_target_types}
 
     source_indices = [idx for idx, page_type in enumerate(page_types) if page_type in source_set]
+
+    # Aplicar filtro de exclusión como origen
+    if exclude_as_source_mask is not None:
+        exclude_source_list = exclude_as_source_mask.tolist()
+        source_indices = [idx for idx in source_indices if not exclude_source_list[idx]]
+
     if source_limit is not None and source_limit > 0:
         source_indices = source_indices[: int(source_limit)]
 
@@ -212,6 +220,9 @@ def hybrid_semantic_linking(
     recommendations: List[Dict[str, object]] = []
     target_link_counts: Dict[str, int] = {url: 0 for url in urls}
 
+    # Preparar lista de exclusión como destino
+    exclude_target_list = exclude_as_target_mask.tolist() if exclude_as_target_mask is not None else None
+
     for src_idx in source_indices:
         source_url = urls[src_idx]
         source_entities = entity_maps[src_idx]
@@ -230,6 +241,10 @@ def hybrid_semantic_linking(
 
             # Filtrar enlaces que ya existen
             if (source_url, target_url) in existing_links_set:
+                continue
+
+            # Filtrar páginas excluidas como destino
+            if exclude_target_list is not None and exclude_target_list[cand_idx]:
                 continue
 
             # Score semántico (normalizado a [0, 1])

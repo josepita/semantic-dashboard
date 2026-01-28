@@ -29,6 +29,12 @@ from apps.content_analyzer.modules.shared.content_utils import (
 )
 
 from .linking_pagerank import build_similarity_edges, calculate_topical_pagerank
+from .linking_batch import (
+    BatchProcessor,
+    should_use_batch_processing,
+    get_optimal_chunk_size,
+    DEFAULT_CHUNK_SIZE,
+)
 
 
 # ============================================================================
@@ -49,6 +55,11 @@ def semantic_link_recommendations(
     source_limit: Optional[int] = None,
     selected_source_urls: Optional[Sequence[str]] = None,
     embedding_col: str = "EmbeddingsFloat",
+    exclude_as_source_mask: Optional[pd.Series] = None,
+    exclude_as_target_mask: Optional[pd.Series] = None,
+    use_batch: Optional[bool] = None,
+    batch_size: int = DEFAULT_CHUNK_SIZE,
+    progress_callback: Optional[callable] = None,
 ) -> pd.DataFrame:
     """
     Genera recomendaciones de enlazado interno respetando prioridades de tipos de destino.
@@ -70,6 +81,11 @@ def semantic_link_recommendations(
         source_limit: Limitar número de páginas origen a procesar
         selected_source_urls: Filtrar a URLs origen específicas
         embedding_col: Nombre de columna con embeddings
+        exclude_as_source_mask: Serie booleana para excluir páginas como origen
+        exclude_as_target_mask: Serie booleana para excluir páginas como destino
+        use_batch: Usar procesamiento por lotes (None=auto, True=forzar, False=desactivar)
+        batch_size: Tamaño del lote para procesamiento (default 1000)
+        progress_callback: Función callback para reportar progreso (current, total, msg)
 
     Returns:
         DataFrame con columnas:
@@ -128,6 +144,11 @@ def semantic_link_recommendations(
     # Identificar páginas origen
     source_indices = [idx for idx, page_type in enumerate(page_types) if page_type in source_set]
 
+    # Aplicar filtro de exclusión como origen
+    if exclude_as_source_mask is not None:
+        exclude_source_list = exclude_as_source_mask.tolist()
+        source_indices = [idx for idx in source_indices if not exclude_source_list[idx]]
+
     # Filtros opcionales
     if selected_source_urls:
         selected_set = {str(url).strip() for url in selected_source_urls}
@@ -148,93 +169,111 @@ def semantic_link_recommendations(
     if not source_indices:
         return pd.DataFrame(columns=columns)
 
-    recommendations: List[Dict[str, str]] = []
     total_rows = len(df_local)
 
-    # Generar recomendaciones por cada página origen
-    for src_idx in source_indices:
-        # Calcular similitud con todas las páginas
-        similarities = embeddings_norm @ embeddings_norm[src_idx]
+    # Preparar lista de exclusión como destino
+    exclude_target_list = exclude_as_target_mask.tolist() if exclude_as_target_mask is not None else None
 
-        # Filtrar candidatos válidos
-        candidate_indices = [
-            idx
-            for idx in range(total_rows)
-            if idx != src_idx
-            and similarities[idx] >= similarity_threshold
-            and urls[idx] != urls[src_idx]
-        ]
+    # Determinar si usar procesamiento por lotes
+    if use_batch is None:
+        use_batch = should_use_batch_processing(len(source_indices), total_rows)
 
-        if not candidate_indices:
-            continue
+    # Función interna para procesar un chunk de índices
+    def process_chunk(chunk_indices: List[int]) -> List[Dict[str, str]]:
+        chunk_recommendations = []
+        for src_idx in chunk_indices:
+            # Calcular similitud con todas las páginas
+            similarities = embeddings_norm @ embeddings_norm[src_idx]
 
-        # Ordenar por similitud descendente
-        candidate_indices.sort(key=lambda idx: float(similarities[idx]), reverse=True)
+            # Filtrar candidatos válidos
+            candidate_indices = [
+                idx
+                for idx in range(total_rows)
+                if idx != src_idx
+                and similarities[idx] >= similarity_threshold
+                and urls[idx] != urls[src_idx]
+                and (exclude_target_list is None or not exclude_target_list[idx])
+            ]
 
-        # Segmentar por prioridad
-        primary_candidates = [idx for idx in candidate_indices if page_types[idx] in primary_set] if primary_set else []
-        primary_idx_set = set(primary_candidates)
+            if not candidate_indices:
+                continue
 
-        secondary_candidates = (
-            [idx for idx in candidate_indices if idx not in primary_idx_set and page_types[idx] in secondary_set]
-            if secondary_set
-            else []
-        )
-        secondary_idx_set = set(secondary_candidates)
+            # Ordenar por similitud descendente
+            candidate_indices.sort(key=lambda idx: float(similarities[idx]), reverse=True)
 
-        fallback_candidates = [
-            idx for idx in candidate_indices if idx not in primary_idx_set and idx not in secondary_idx_set
-        ]
+            # Segmentar por prioridad
+            primary_candidates = [idx for idx in candidate_indices if page_types[idx] in primary_set] if primary_set else []
+            primary_idx_set = set(primary_candidates)
 
-        # Seleccionar enlaces respetando límites
-        selected_pairs: List[Tuple[int, str]] = []
-        used_indices: set[int] = set()
-
-        def extend(indices: Sequence[int], limit: Optional[int], label: str) -> None:
-            """Helper para añadir enlaces respetando límite."""
-            if limit is not None and limit <= 0:
-                return
-            taken = 0
-            for idx in indices:
-                if len(selected_pairs) >= max_links_per_source:
-                    break
-                if idx in used_indices:
-                    continue
-                selected_pairs.append((idx, label))
-                used_indices.add(idx)
-                taken += 1
-                if limit is not None and taken >= limit:
-                    break
-
-        # Prioridad 1: Objetivos prioritarios (money pages)
-        if primary_candidates:
-            extend(primary_candidates, int(max_primary), "Objetivo prioritario")
-
-        # Prioridad 2: Objetivos secundarios
-        if secondary_candidates:
-            extend(secondary_candidates, int(max_secondary), "Cluster complementario")
-
-        # Prioridad 3: Fallback (exploración semántica)
-        if len(selected_pairs) < max_links_per_source:
-            extend(fallback_candidates, max_links_per_source - len(selected_pairs), "Exploración")
-
-        if not selected_pairs:
-            continue
-
-        # Crear registros de recomendaciones
-        for candidate_idx, action_label in selected_pairs:
-            score = float(similarities[candidate_idx]) * 100.0
-            recommendations.append(
-                {
-                    "Origen URL": urls[src_idx],
-                    "Origen Tipo": page_types[src_idx],
-                    "Destino Sugerido URL": urls[candidate_idx],
-                    "Destino Tipo": page_types[candidate_idx],
-                    "Score Similitud (%)": round(score, 2),
-                    "Acción SEO": action_label,
-                }
+            secondary_candidates = (
+                [idx for idx in candidate_indices if idx not in primary_idx_set and page_types[idx] in secondary_set]
+                if secondary_set
+                else []
             )
+            secondary_idx_set = set(secondary_candidates)
 
+            fallback_candidates = [
+                idx for idx in candidate_indices if idx not in primary_idx_set and idx not in secondary_idx_set
+            ]
+
+            # Seleccionar enlaces respetando límites
+            selected_pairs: List[Tuple[int, str]] = []
+            used_indices: set[int] = set()
+
+            def extend(indices: Sequence[int], limit: Optional[int], label: str) -> None:
+                if limit is not None and limit <= 0:
+                    return
+                taken = 0
+                for idx in indices:
+                    if len(selected_pairs) >= max_links_per_source:
+                        break
+                    if idx in used_indices:
+                        continue
+                    selected_pairs.append((idx, label))
+                    used_indices.add(idx)
+                    taken += 1
+                    if limit is not None and taken >= limit:
+                        break
+
+            if primary_candidates:
+                extend(primary_candidates, int(max_primary), "Objetivo prioritario")
+            if secondary_candidates:
+                extend(secondary_candidates, int(max_secondary), "Cluster complementario")
+            if len(selected_pairs) < max_links_per_source:
+                extend(fallback_candidates, max_links_per_source - len(selected_pairs), "Exploración")
+
+            if not selected_pairs:
+                continue
+
+            for candidate_idx, action_label in selected_pairs:
+                score = float(similarities[candidate_idx]) * 100.0
+                chunk_recommendations.append(
+                    {
+                        "Origen URL": urls[src_idx],
+                        "Origen Tipo": page_types[src_idx],
+                        "Destino Sugerido URL": urls[candidate_idx],
+                        "Destino Tipo": page_types[candidate_idx],
+                        "Score Similitud (%)": round(score, 2),
+                        "Acción SEO": action_label,
+                    }
+                )
+        return chunk_recommendations
+
+    # Procesar con o sin batch
+    if use_batch and len(source_indices) > batch_size:
+        processor = BatchProcessor(
+            chunk_size=batch_size,
+            progress_callback=progress_callback,
+        )
+        recommendations = processor.process_in_batches(source_indices, process_chunk)
+    else:
+        # Procesar todo de una vez (comportamiento original)
+        if progress_callback:
+            progress_callback(1, 1, f"Procesando {len(source_indices)} URLs origen...")
+        recommendations = process_chunk(source_indices)
+
+    # El código original del loop se ha movido a process_chunk
+    # Mantener solo el return final
     if not recommendations:
         return pd.DataFrame(columns=columns)
 
@@ -264,6 +303,8 @@ def advanced_semantic_linking(
     silo_boost: float,
     embedding_col: str = "EmbeddingsFloat",
     source_limit: Optional[int] = None,
+    exclude_as_source_mask: Optional[pd.Series] = None,
+    exclude_as_target_mask: Optional[pd.Series] = None,
 ) -> Tuple[pd.DataFrame, List[str]]:
     """
     Variante avanzada que añade señal de arquitectura (silos) y reporte de páginas huérfanas.
@@ -345,6 +386,12 @@ def advanced_semantic_linking(
 
     # Identificar páginas origen
     source_indices = [idx for idx, page_type in enumerate(page_types) if page_type in source_set]
+
+    # Aplicar filtro de exclusión como origen
+    if exclude_as_source_mask is not None:
+        exclude_source_list = exclude_as_source_mask.tolist()
+        source_indices = [idx for idx in source_indices if not exclude_source_list[idx]]
+
     if source_limit is not None and source_limit > 0:
         source_indices = source_indices[: int(source_limit)]
 
@@ -354,6 +401,9 @@ def advanced_semantic_linking(
 
     recommendations: List[Dict[str, object]] = []
     target_counts: Dict[str, int] = {url: 0 for url in urls}
+
+    # Preparar lista de exclusión como destino
+    exclude_target_list = exclude_as_target_mask.tolist() if exclude_as_target_mask is not None else None
 
     # Generar recomendaciones
     for src_idx in source_indices:
@@ -376,6 +426,7 @@ def advanced_semantic_linking(
             and boosted[idx] >= similarity_threshold
             and urls[idx] != source_url
             and page_types[idx] in allowed_target_types
+            and (exclude_target_list is None or not exclude_target_list[idx])  # Filtro de exclusión
         ]
 
         if not candidate_indices:

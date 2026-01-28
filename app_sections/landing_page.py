@@ -81,7 +81,7 @@ def render_sidebar_navigation() -> None:
             {"icon": "🧠", "label": "Semantic Keyword", "view": "keywords"},
             {"icon": "🔗", "label": "Laboratorio Enlazado", "view": "linking"},
             {"icon": "📊", "label": "Informe Posiciones", "view": "positions"},
-            {"icon": "🛰️", "label": "Logs Googlebot", "view": "logs"},
+            {"icon": "🔍", "label": "Relaciones Semánticas", "view": "relations"},
         ]
         
         # Crear botones de navegación
@@ -114,6 +114,8 @@ def apply_global_styles() -> None:
             --text-primary: #f5f7ff;
             --text-secondary: #a0a8c3;
         }
+
+        /* Fondo general */
         body {
             background-color: var(--bg-primary);
             color: var(--text-primary);
@@ -121,14 +123,102 @@ def apply_global_styles() -> None:
         .main {
             background-color: var(--bg-primary);
         }
+        .stApp {
+            background-color: var(--bg-primary);
+        }
+
+        /* Sidebar */
         section[data-testid="stSidebar"] {
             background-color: #14172b;
         }
         section[data-testid="stSidebar"] * {
             color: var(--text-primary) !important;
         }
-        .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5 {
-            color: var(--text-primary);
+
+        /* Textos y headings */
+        .stMarkdown, .stMarkdown p, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3, .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
+            color: var(--text-primary) !important;
+        }
+        h1, h2, h3, h4, h5, h6, p, span, label {
+            color: var(--text-primary) !important;
+        }
+
+        /* DataFrames y tablas */
+        [data-testid="stDataFrame"], [data-testid="stTable"] {
+            background-color: var(--bg-card);
+        }
+        .dataframe {
+            color: var(--text-primary) !important;
+            background-color: var(--bg-card) !important;
+        }
+        .dataframe thead th {
+            background-color: var(--bg-secondary) !important;
+            color: var(--text-primary) !important;
+        }
+        .dataframe tbody tr {
+            background-color: var(--bg-card) !important;
+        }
+        .dataframe tbody tr:hover {
+            background-color: var(--bg-secondary) !important;
+        }
+
+        /* Inputs, selectbox, multiselect */
+        .stTextInput > div > div > input,
+        .stSelectbox > div > div > div,
+        .stMultiSelect > div > div > div,
+        .stTextArea > div > div > textarea {
+            background-color: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border-color: var(--border-color) !important;
+        }
+
+        /* Metrics */
+        [data-testid="stMetricValue"] {
+            color: var(--text-primary) !important;
+        }
+        [data-testid="stMetricLabel"] {
+            color: var(--text-secondary) !important;
+        }
+
+        /* Expander */
+        .streamlit-expanderHeader {
+            background-color: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+        }
+        .streamlit-expanderContent {
+            background-color: var(--bg-secondary) !important;
+        }
+
+        /* Tabs */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background-color: var(--bg-card);
+            color: var(--text-secondary);
+            border-radius: 8px 8px 0 0;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary) !important;
+        }
+
+        /* Buttons */
+        .stButton > button {
+            background-color: var(--accent) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 8px !important;
+        }
+        .stButton > button:hover {
+            background-color: #4a5cef !important;
+        }
+
+        /* Download button */
+        .stDownloadButton > button {
+            background-color: var(--bg-card) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-color) !important;
         }
         .card-panel {
             background: var(--bg-card);
@@ -281,13 +371,13 @@ def render_landing_view() -> None:
             "key": "cta_positions",
         },
         {
-            "icon": "🛰️",
-            "title": "Análisis de logs de Googlebot",
-            "body": "Filtra Googlebot real desde tus logs, clasifica URLs y genera tendencias por día y tipo de archivo.",
-            "button": "Ir a Logs Googlebot",
-            "view": "logs",
-            "style": "secondary",
-            "key": "cta_logs",
+            "icon": "🔍",
+            "title": "Relaciones Semánticas",
+            "body": "Visualiza las relaciones semánticas entre palabras clave con matrices de similitud, grafos de red y mapas 2D interactivos.",
+            "button": "Analizar relaciones",
+            "view": "relations",
+            "style": "primary",
+            "key": "cta_relations",
         },
     ]
 

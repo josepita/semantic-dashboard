@@ -37,6 +37,15 @@ from .linking_utils import (
     interpret_linking_reports_with_gemini,
 )
 
+from .linking_batch import (
+    BatchProcessor,
+    should_use_batch_processing,
+    estimate_memory_usage,
+    get_optimal_chunk_size,
+    DEFAULT_CHUNK_SIZE,
+    AUTO_BATCH_THRESHOLD,
+)
+
 __all__ = [
     # PageRank
     "build_similarity_edges",
@@ -53,4 +62,11 @@ __all__ = [
     "build_entity_payload_from_doc_relations",
     "build_linking_reports_payload",
     "interpret_linking_reports_with_gemini",
+    # Batch processing
+    "BatchProcessor",
+    "should_use_batch_processing",
+    "estimate_memory_usage",
+    "get_optimal_chunk_size",
+    "DEFAULT_CHUNK_SIZE",
+    "AUTO_BATCH_THRESHOLD",
 ]

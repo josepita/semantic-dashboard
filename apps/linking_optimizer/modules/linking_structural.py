@@ -35,6 +35,8 @@ def structural_taxonomy_linking(
     link_weight: float,
     use_semantic_priority: bool = False,
     embedding_col: str = "EmbeddingsFloat",
+    exclude_as_source_mask: Optional[pd.Series] = None,
+    exclude_as_target_mask: Optional[pd.Series] = None,
 ) -> pd.DataFrame:
     """
     Genera recomendaciones de enlaces basadas en la estructura jerárquica de URLs.
@@ -86,6 +88,19 @@ def structural_taxonomy_linking(
     df_local = df.copy()
     df_local[url_column] = df_local[url_column].astype(str).str.strip()
 
+    # Crear sets de URLs excluidas para búsqueda eficiente
+    urls_list = df_local[url_column].tolist()
+    excluded_as_source_urls: set = set()
+    excluded_as_target_urls: set = set()
+
+    if exclude_as_source_mask is not None:
+        exclude_source_list = exclude_as_source_mask.tolist()
+        excluded_as_source_urls = {urls_list[i] for i in range(len(urls_list)) if exclude_source_list[i]}
+
+    if exclude_as_target_mask is not None:
+        exclude_target_list = exclude_as_target_mask.tolist()
+        excluded_as_target_urls = {urls_list[i] for i in range(len(urls_list)) if exclude_target_list[i]}
+
     # Extraer jerarquía (custom o desde URL)
     if hierarchy_column and hierarchy_column in df_local.columns:
         df_local["HierarchyPath"] = (
@@ -124,10 +139,17 @@ def structural_taxonomy_linking(
     # Cada página enlaza a su padre jerárquico
     for _, row in df_local.iterrows():
         source_url = row[url_column]
+
+        # Filtrar si está excluido como origen
+        if source_url in excluded_as_source_urls:
+            continue
+
         parent_path = row["ParentPath"]
 
         if parent_path != "root":
             parent_candidates = path_to_urls.get(parent_path, [])
+            # Filtrar candidatos excluidos como destino
+            parent_candidates = [p for p in parent_candidates if p not in excluded_as_target_urls]
             parent_url = parent_candidates[0] if parent_candidates else None
 
             if parent_url:
@@ -144,10 +166,13 @@ def structural_taxonomy_linking(
         # ====================================================================
         # ESTRATEGIA 2: ENLACES HORIZONTALES (Hermanos)
         # ====================================================================
-        if include_horizontal:
+        if include_horizontal and source_url not in excluded_as_source_urls:
             siblings = parent_to_children.get(parent_path, [])
-            # Filtrar el propio source_url
-            siblings_filtered = [sib for sib in siblings if sib != source_url]
+            # Filtrar el propio source_url y URLs excluidas como destino
+            siblings_filtered = [
+                sib for sib in siblings
+                if sib != source_url and sib not in excluded_as_target_urls
+            ]
 
             # Priorización semántica opcional
             if use_semantic_priority and embedding_col in df_local.columns and len(siblings_filtered) > 0:
@@ -204,13 +229,16 @@ def structural_taxonomy_linking(
     # Cada padre enlaza a sus hijos más importantes
     for parent_path, children_urls in parent_to_children.items():
         parent_candidates = path_to_urls.get(parent_path, [])
+        # Filtrar candidatos excluidos como origen
+        parent_candidates = [p for p in parent_candidates if p not in excluded_as_source_urls]
         parent_url = parent_candidates[0] if parent_candidates else None
 
         if not parent_url:
             continue
 
-        # Limitar hijos destacados
-        limited_children = children_urls[:max_links_per_parent]
+        # Filtrar hijos excluidos como destino y limitar
+        children_filtered = [c for c in children_urls if c not in excluded_as_target_urls]
+        limited_children = children_filtered[:max_links_per_parent]
 
         for child_url in limited_children:
             recommendations.append(
