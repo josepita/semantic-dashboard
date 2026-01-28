@@ -41,6 +41,21 @@ from apps.linking_optimizer.modules import (
     DEFAULT_CHUNK_SIZE,
 )
 
+# Import GSC integration (optional - may not be installed)
+try:
+    from shared.gsc_ui import (
+        render_gsc_connection_panel,
+        render_gsc_site_selector,
+        render_gsc_data_loader,
+        render_gsc_linking_integration,
+        render_opportunity_pages,
+        GSC_DATA_KEY,
+    )
+    from shared.gsc_client import GOOGLE_API_AVAILABLE
+    GSC_AVAILABLE = GOOGLE_API_AVAILABLE
+except ImportError:
+    GSC_AVAILABLE = False
+
 def render_linking_lab() -> None:
     """Pantalla dedicada al laboratorio de enlazado interno."""
     st.subheader("🔗 Laboratorio de enlazado interno")
@@ -272,6 +287,63 @@ def render_linking_lab() -> None:
                 st.session_state["linking_existing_edges"] = None
                 st.success("Enlaces existentes eliminados.")
                 st.rerun()
+
+    # ========================================================================
+    # SECCIÓN: GOOGLE SEARCH CONSOLE
+    # ========================================================================
+    if GSC_AVAILABLE:
+        with st.expander("📊 Conectar Google Search Console (datos de rendimiento)", expanded=False):
+            st.markdown("""
+            **Conecta tu cuenta de Search Console** para:
+            - Obtener datos reales de clics, impresiones, CTR y posición
+            - Identificar páginas con alta visibilidad pero bajo CTR (oportunidades)
+            - Priorizar enlaces internos hacia páginas que necesitan autoridad
+            """)
+
+            # Panel de conexión
+            gsc_client = render_gsc_connection_panel()
+
+            if gsc_client:
+                # Selector de sitio
+                selected_site = render_gsc_site_selector(gsc_client)
+
+                if selected_site:
+                    # Cargar datos
+                    gsc_df = render_gsc_data_loader(gsc_client, selected_site)
+
+                    if gsc_df is not None and not gsc_df.empty:
+                        st.markdown("---")
+
+                        # Integración con embeddings
+                        if processed_df is not None and url_column is not None:
+                            merged_df = render_gsc_linking_integration(
+                                gsc_df=gsc_df,
+                                embeddings_df=processed_df,
+                                url_column=url_column,
+                            )
+
+                            if merged_df is not None:
+                                # Actualizar el dataframe procesado con datos de GSC
+                                st.session_state["processed_df"] = merged_df
+                                st.session_state["gsc_enriched"] = True
+                                st.info("✅ Dataset enriquecido con datos de GSC. Las columnas `clicks`, `impressions`, `ctr` y `position` están disponibles.")
+
+                        # Análisis de oportunidades
+                        st.markdown("---")
+                        opportunities = render_opportunity_pages(gsc_df)
+
+                        if opportunities is not None and not opportunities.empty:
+                            # Guardar URLs de oportunidad para priorizar en algoritmos
+                            opportunity_urls = set(opportunities['page'].tolist()) if 'page' in opportunities.columns else set()
+                            st.session_state["gsc_opportunity_urls"] = opportunity_urls
+                            st.info(f"💡 {len(opportunity_urls)} URLs de oportunidad identificadas. Los algoritmos de enlazado las priorizarán automáticamente.")
+    else:
+        with st.expander("📊 Google Search Console (no disponible)", expanded=False):
+            st.warning(
+                "Las librerías de Google API no están instaladas. "
+                "Para habilitar la conexión con Search Console, ejecuta:"
+            )
+            st.code("pip install google-api-python-client google-auth-oauthlib")
 
     st.markdown("---")
 

@@ -5,6 +5,24 @@ Todos los cambios notables de este proyecto se documentan en este archivo.
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto sigue [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.1.0] - 2025-01-28
+
+### Added
+- **Integración con Google Search Console**
+  - Cliente API completo para GSC (`shared/gsc_client.py`)
+  - Flujo OAuth para autenticación con Google
+  - Carga de datos de rendimiento (clics, impresiones, CTR, posición)
+  - Fusión automática de datos GSC con embeddings
+  - Identificación de páginas con oportunidad (alta visibilidad, bajo CTR)
+  - UI integrada en el Laboratorio de Enlazado (`shared/gsc_ui.py`)
+- Nuevas dependencias: `google-api-python-client`, `google-auth-oauthlib`
+
+### Changed
+- El Laboratorio de Enlazado ahora puede enriquecer datos con métricas de GSC
+- Los algoritmos pueden priorizar páginas de oportunidad detectadas por GSC
+
+---
+
 ## [1.0.0] - 2025-01-28
 
 ### Added
