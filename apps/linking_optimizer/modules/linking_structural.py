@@ -20,6 +20,8 @@ from apps.content_analyzer.modules.shared.content_utils import (
     generate_contextual_anchor,
 )
 
+from .linking_algorithms import normalize_url  # Import shared normalize_url
+
 
 # ============================================================================
 # ALGORITMO ESTRUCTURAL: TAXONOMÍA Y JERARQUÍA
@@ -86,7 +88,7 @@ def structural_taxonomy_linking(
         >>> # - python → [tutorial1, tutorial2] (destacados)
     """
     df_local = df.copy()
-    df_local[url_column] = df_local[url_column].astype(str).str.strip()
+    df_local[url_column] = df_local[url_column].astype(str).str.strip().apply(normalize_url)
 
     # Crear sets de URLs excluidas para búsqueda eficiente
     urls_list = df_local[url_column].tolist()
@@ -264,8 +266,10 @@ def structural_taxonomy_linking(
             ]
         )
 
-    # Eliminar duplicados
-    return pd.DataFrame(recommendations).drop_duplicates(subset=["Origen URL", "Destino URL", "Estrategia"])
+    # Eliminar duplicados (solo por origen-destino, no por estrategia)
+    return pd.DataFrame(recommendations).drop_duplicates(
+        subset=["Origen URL", "Destino URL"]
+    ).reset_index(drop=True)
 
 
 # ============================================================================

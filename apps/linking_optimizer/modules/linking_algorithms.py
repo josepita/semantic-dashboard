@@ -37,6 +37,34 @@ from .linking_batch import (
 )
 
 
+def normalize_url(url: str) -> str:
+    """
+    Normaliza URL para comparación consistente.
+    
+    Elimina diferencias irrelevantes como trailing slashes, case sensitivity,
+    y prefijo www para evitar duplicados y auto-enlaces falsos.
+    
+    Args:
+        url: URL a normalizar
+    
+    Returns:
+        URL normalizada en lowercase sin trailing slash ni www
+        
+    Example:
+        >>> normalize_url("Example.com/Page/")
+        'example.com/page'
+        >>> normalize_url("https://www.example.com")
+        'https://example.com'
+    """
+    url = url.strip().lower()
+    # Eliminar trailing slash (pero mantener el de https://)
+    if url.endswith('/') and url.count('/') > 2:
+        url = url[:-1]
+    # Normalizar www
+    url = url.replace('://www.', '://')
+    return url
+
+
 # ============================================================================
 # ALGORITMO BÁSICO: ENLAZADO SEMÁNTICO
 # ============================================================================
@@ -124,7 +152,7 @@ def semantic_link_recommendations(
 
     # Preparar datos
     df_local = df.copy()
-    df_local[url_column] = df_local[url_column].astype(str).str.strip()
+    df_local[url_column] = df_local[url_column].astype(str).str.strip().apply(normalize_url)
     df_local[type_column] = df_local[type_column].astype(str).str.strip()
 
     # Embeddings normalizados
@@ -186,12 +214,13 @@ def semantic_link_recommendations(
             similarities = embeddings_norm @ embeddings_norm[src_idx]
 
             # Filtrar candidatos válidos
+            source_url_normalized = urls[src_idx]
             candidate_indices = [
                 idx
                 for idx in range(total_rows)
                 if idx != src_idx
                 and similarities[idx] >= similarity_threshold
-                and urls[idx] != urls[src_idx]
+                and urls[idx] != source_url_normalized  # Ya normalizado
                 and (exclude_target_list is None or not exclude_target_list[idx])
             ]
 
@@ -354,7 +383,7 @@ def advanced_semantic_linking(
 
     # Preparar datos con silos y anchors
     df_local = df.copy()
-    df_local[url_column] = df_local[url_column].astype(str).str.strip()
+    df_local[url_column] = df_local[url_column].astype(str).str.strip().apply(normalize_url)
     df_local[type_column] = df_local[type_column].astype(str).str.strip()
     df_local["Silo"] = df_local[url_column].apply(lambda url: extract_url_silo(url, depth=silo_depth))
     df_local["SuggestedAnchor"] = df_local.apply(
@@ -419,14 +448,15 @@ def advanced_semantic_linking(
         boosted = similarities + same_silo_mask * float(silo_boost)
 
         # Filtrar candidatos
+        source_url_normalized = source_url
         candidate_indices = [
             idx
             for idx in range(total_rows)
             if idx != src_idx
             and boosted[idx] >= similarity_threshold
-            and urls[idx] != source_url
+            and urls[idx] != source_url_normalized  # Ya normalizado
             and page_types[idx] in allowed_target_types
-            and (exclude_target_list is None or not exclude_target_list[idx])  # Filtro de exclusión
+            and (exclude_target_list is None or not exclude_target_list[idx])
         ]
 
         if not candidate_indices:

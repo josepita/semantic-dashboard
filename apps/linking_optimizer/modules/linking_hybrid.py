@@ -28,6 +28,7 @@ from apps.content_analyzer.modules.shared.content_utils import (
 )
 
 from .linking_pagerank import build_similarity_edges, calculate_topical_pagerank
+from .linking_algorithms import normalize_url  # Import shared normalize_url
 
 
 # ============================================================================
@@ -142,7 +143,7 @@ def hybrid_semantic_linking(
 
     # Preparar datos
     df_local = df.copy()
-    df_local[url_column] = df_local[url_column].astype(str).str.strip()
+    df_local[url_column] = df_local[url_column].astype(str).str.strip().apply(normalize_url)
     df_local[type_column] = df_local[type_column].astype(str).str.strip()
 
     # Parsear entidades
@@ -239,6 +240,10 @@ def hybrid_semantic_linking(
 
             target_url = urls[cand_idx]
 
+            # Validación de auto-enlace mejorada (URLs ya normalizadas)
+            if target_url == source_url:
+                continue
+
             # Filtrar enlaces que ya existen
             if (source_url, target_url) in existing_links_set:
                 continue
@@ -247,9 +252,10 @@ def hybrid_semantic_linking(
             if exclude_target_list is not None and exclude_target_list[cand_idx]:
                 continue
 
-            # Score semántico (normalizado a [0, 1])
-            semantic_score = float((similarities[cand_idx] + 1.0) / 2.0)
+            # Score semántico (ya normalizado en [0, 1] por sklearn.normalize)
+            semantic_score = float(similarities[cand_idx])
 
+            # Verificar threshold
             if semantic_score < similarity_threshold:
                 continue
 

@@ -29,6 +29,20 @@ from urllib.parse import parse_qs, unquote, urlparse
 # from app_sections.google_kg import ensure_google_kg_api_key, query_google_enterprise_kg
 
 DEFAULT_SENTENCE_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
+
+# Modelos disponibles para análisis semántico
+AVAILABLE_MODELS = {
+    "mini": "paraphrase-multilingual-MiniLM-L12-v2",
+    "mpnet": "paraphrase-multilingual-mpnet-base-v2",
+    "e5-large": "intfloat/multilingual-e5-large",
+}
+
+MODEL_DESCRIPTIONS = {
+    "mini": "⚡ Rápido y ligero (384 dim) - Recomendado para análisis rápidos",
+    "mpnet": "⚖️ Balance calidad/velocidad (768 dim) - Recomendado para la mayoría de casos",
+    "e5-large": "🎯 Máxima calidad (1024 dim) - Para análisis críticos (~2.2 GB descarga)",
+}
+
 MAX_COMPETITOR_CONTENT_CHARS = 8000
 MAX_URL_BODY_CHARS = 6000
 MAX_URL_DESCRIPTION_CHARS = 600

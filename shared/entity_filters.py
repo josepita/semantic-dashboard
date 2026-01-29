@@ -139,7 +139,7 @@ def is_noise_pattern(text: str) -> bool:
 def is_valid_entity(
     text: str,
     entity_type: str,
-    min_length: int = 2,
+    min_length: int = 3,
     allow_common_names: bool = False,
     custom_stopwords: Set[str] | None = None
 ) -> bool:
@@ -196,7 +196,7 @@ def is_valid_entity(
         return False
 
     # Filtro 7: Entidades de tipo DATE, TIME, PERCENT, etc. con longitud mínima mayor
-    low_value_types = {"DATE", "TIME", "PERCENT", "MONEY", "QUANTITY", "ORDINAL", "CARDINAL"}
+    low_value_types = {"DATE", "TIME", "PERCENT", "MONEY", "QUANTITY", "ORDINAL", "CARDINAL", "LANGUAGE"}
     if entity_type in low_value_types and len(text_clean) < 4:
         return False
 
@@ -205,7 +205,7 @@ def is_valid_entity(
 
 def filter_entities(
     entities: list[dict],
-    min_length: int = 2,
+    min_length: int = 3,
     min_frequency: int = 1,
     allow_common_names: bool = False,
     custom_stopwords: Set[str] | None = None,
@@ -344,6 +344,18 @@ def get_entity_quality_score(entity: dict) -> float:
     # Penalizar si está en stopwords
     if text.lower() in STOPWORDS:
         score *= 0.1
+
+    # Penalizar palabras de relleno que pasaron filtro de stopwords
+    filler_words = {"cosa", "cosas", "parte", "forma", "manera", "tipo", "momento", "caso"}
+    if any(word in text.lower().split() for word in filler_words):
+        score *= 0.3
+
+    # Bonus para entidades con múltiples palabras (excepto nombres comunes)
+    word_count = len(text.split())
+    if word_count >= 2 and entity_type != "PERSON":
+        score *= 1.2
+    elif word_count >= 3:
+        score *= 1.4  # Entidades largas suelen ser más específicas
 
     # Bonus por longitud razonable (no demasiado larga)
     if 5 <= len(text) <= 50:
@@ -665,6 +677,60 @@ def clean_entities_advanced(
     return final_sorted
 
 
+def filter_by_global_relevance(
+    entities: List[dict],
+    min_unique_value_ratio: float = 0.3
+) -> List[dict]:
+    """
+    Filtra entidades que aparecen pocas veces Y no tienen valor semántico claro.
+    
+    Elimina entidades únicas o poco frecuentes que tienen bajo quality score,
+    reduciendo ruido de entidades que aparecen una sola vez sin contexto relevante.
+    
+    Args:
+        entities: Lista de entidades con al menos "text" y "label"
+        min_unique_value_ratio: Ratio mínimo freq/total (default 0.3 = 30%)
+    
+    Returns:
+        Lista filtrada de entidades
+        
+    Example:
+        >>> entities = [
+        ...     {"text": "Google", "label": "ORG"},  # Aparece 5 veces
+        ...     {"text": "Google", "label": "ORG"},
+        ...     {"text": "cosa", "label": "MISC"},  # Aparece 1 vez, bajo quality
+        ...     {"text": "momento", "label": "MISC"},  # Aparece 1 vez, bajo quality
+        ... ]
+        >>> filtered = filter_by_global_relevance(entities, 0.3)
+        >>> len(filtered)  # Solo mantiene "Google"
+        2
+    """
+    if not entities:
+        return []
+    
+    total = len(entities)
+    freq_count: Dict[str, int] = {}
+    for ent in entities:
+        text_lower = ent.get("text", "").lower()
+        freq_count[text_lower] = freq_count.get(text_lower, 0) + 1
+    
+    filtered = []
+    for ent in entities:
+        text_lower = ent.get("text", "").lower()
+        freq = freq_count.get(text_lower, 0)
+        ratio = freq / total if total > 0 else 0
+        
+        # Si es poco frecuente (<30%) Y tiene bajo quality score, skip
+        if ratio < min_unique_value_ratio:
+            quality = get_entity_quality_score(ent)
+            if quality < 0.5:
+                continue
+        
+        filtered.append(ent)
+    
+    return filtered
+
+
 __all__ = [
     "is_valid_entity",
     "is_noise_pattern",
@@ -676,6 +742,7 @@ __all__ = [
     "deduplicate_entities_by_lemma",
     "normalize_entity_variations",
     "clean_entities_advanced",
+    "filter_by_global_relevance",
     "STOPWORDS",
     "COMMON_NAMES",
 ]

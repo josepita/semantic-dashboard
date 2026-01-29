@@ -9,11 +9,12 @@ import pandas as pd
 import streamlit as st
 from pyvis.network import Network
 
-from modules.entity_filters import (
+from shared.entity_filters import (
     is_valid_entity,
     normalize_entity_text,
     clean_entities_advanced,
     lemmatize_text,
+    filter_by_global_relevance,
 )
 from modules.semantic_depth import analyze_document_sds
 from modules.semantic_tools import get_sentence_transformer
@@ -283,6 +284,11 @@ def generate_knowledge_graph_html_v2(
             if allowed_entity_labels and ent.label_ not in allowed_entity_labels:
                 continue
 
+            # Excluir tipos de bajo valor por defecto si no hay whitelist
+            low_value_default = {"DATE", "TIME", "CARDINAL", "ORDINAL", "PERCENT", "MONEY", "QUANTITY", "LANGUAGE"}
+            if not allowed_entity_labels and ent.label_ in low_value_default:
+                continue
+
             canonical_span = resolve_canonical_span(ent, coref_map) if coref_map else ent
             canonical_text = canonical_span.text.strip() or ent_text
             if not canonical_text:
@@ -409,6 +415,27 @@ def generate_knowledge_graph_html_v2(
 
     if not entity_stats:
         raise ValueError("No se detectaron entidades en el texto proporcionado.")
+
+    # Aplicar filtro de relevancia global para reducir ruido
+    # Convertir entity_stats a formato de lista para el filtro
+    entity_list_for_filter = [
+        {"text": stats["canonical_name"], "label": stats["label"]}
+        for stats in entity_stats.values()
+    ]
+    filtered_entity_list = filter_by_global_relevance(entity_list_for_filter, min_unique_value_ratio=0.25)
+    
+    # Crear set de entidades aprobadas
+    approved_entities_set = {ent["text"].lower() for ent in filtered_entity_list}
+    
+    # Filtrar entity_stats para mantener solo entidades aprobadas
+    entity_stats = {
+        entity_id: stats
+        for entity_id, stats in entity_stats.items()
+        if stats["canonical_name"].lower() in approved_entities_set
+    }
+    
+    if not entity_stats:
+        raise ValueError("No se detectaron entidades relevantes después de aplicar filtros de calidad.")
 
     graph_nodes = list(entity_stats.keys())
     graph_nx = nx.DiGraph()

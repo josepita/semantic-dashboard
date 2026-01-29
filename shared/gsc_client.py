@@ -137,7 +137,8 @@ def exchange_code_for_credentials(flow: Any, code: str) -> Optional[Any]:
         flow.fetch_token(code=code)
         return flow.credentials
     except Exception as e:
-        print(f"Error intercambiando código: {e}")
+        import streamlit as st
+        st.error(f"Error intercambiando código OAuth: {e}")
         return None
 
 

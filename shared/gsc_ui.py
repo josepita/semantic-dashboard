@@ -84,7 +84,8 @@ def delete_gsc_credentials() -> bool:
         if os.path.exists(path):
             os.remove(path)
         # Limpiar session state
-        for key in [GSC_CREDENTIALS_KEY, GSC_CLIENT_KEY, GSC_SITES_KEY, GSC_DATA_KEY]:
+        for key in [GSC_CREDENTIALS_KEY, GSC_CLIENT_KEY, GSC_SITES_KEY, GSC_DATA_KEY,
+                    'gsc_oauth_flow', '_gsc_flow_creds_key']:
             if key in st.session_state:
                 del st.session_state[key]
         return True
@@ -167,10 +168,15 @@ def render_gsc_connection_panel() -> Optional[GSCClient]:
         )
 
         if client_id and client_secret:
-            # Crear flujo OAuth
-            if 'gsc_oauth_flow' not in st.session_state:
+            # Crear flujo OAuth (recrear si las credenciales cambiaron)
+            flow_credentials_key = f"{client_id}:{client_secret}"
+            if (
+                'gsc_oauth_flow' not in st.session_state
+                or st.session_state.get('_gsc_flow_creds_key') != flow_credentials_key
+            ):
                 flow = create_oauth_flow(client_id, client_secret)
                 st.session_state['gsc_oauth_flow'] = flow
+                st.session_state['_gsc_flow_creds_key'] = flow_credentials_key
 
             flow = st.session_state['gsc_oauth_flow']
             auth_url = get_authorization_url(flow)
