@@ -6,6 +6,11 @@ mediante embeddings y diferentes tipos de gráficos interactivos.
 """
 
 from typing import List, Tuple, Dict, Optional
+import hashlib
+import os
+import re
+import tempfile
+
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -15,11 +20,16 @@ from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.cluster import AgglomerativeClustering
+from sklearn.metrics import silhouette_score
 import networkx as nx
 from pyvis.network import Network
-import tempfile
-import os
-import re
+
+# UMAP es opcional (requiere umap-learn)
+try:
+    from umap import UMAP
+    UMAP_AVAILABLE = True
+except ImportError:
+    UMAP_AVAILABLE = False
 
 
 def normalize_keywords(keywords_list: List[str]) -> Tuple[List[str], int]:
@@ -78,6 +88,82 @@ def suggest_threshold(similarity_df: pd.DataFrame) -> Dict[str, float]:
         "restrictivo": round(p90, 2)
     }
 
+
+
+def find_optimal_clusters(
+    embeddings: np.ndarray,
+    max_clusters: int = 10
+) -> Tuple[int, List[Tuple[int, float]]]:
+    """
+    Encuentra el número óptimo de clusters usando Silhouette Score.
+
+    Args:
+        embeddings: Array de embeddings
+        max_clusters: Máximo de clusters a probar
+
+    Returns:
+        Tupla (n_clusters_óptimo, lista de (n, score))
+    """
+    max_k = min(max_clusters, len(embeddings) - 1)
+    if max_k < 2:
+        return 2, [(2, 0.0)]
+
+    scores = []
+    for n in range(2, max_k + 1):
+        clustering = AgglomerativeClustering(n_clusters=n, linkage='ward')
+        labels = clustering.fit_predict(embeddings)
+        score = silhouette_score(embeddings, labels)
+        scores.append((n, float(score)))
+
+    optimal_n = max(scores, key=lambda x: x[1])[0]
+    return optimal_n, scores
+
+
+def detect_outliers(
+    similarity_df: pd.DataFrame,
+    threshold: float = 0.3
+) -> pd.Series:
+    """
+    Detecta keywords con baja similitud promedio respecto al resto.
+
+    Args:
+        similarity_df: DataFrame con matriz de similitud
+        threshold: Umbral por debajo del cual se considera outlier
+
+    Returns:
+        Series con similitud promedio de los outliers
+    """
+    # Excluir la diagonal (similitud consigo misma = 1.0)
+    mask = ~np.eye(len(similarity_df), dtype=bool)
+    masked_values = similarity_df.values * mask
+    row_sums = masked_values.sum(axis=1)
+    counts = mask.sum(axis=1)
+    avg_similarities = pd.Series(
+        row_sums / counts,
+        index=similarity_df.index,
+        name="Similitud promedio"
+    )
+    return avg_similarities[avg_similarities < threshold]
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_embeddings_cached(
+    keywords_tuple: Tuple[str, ...],
+    model_name: str
+) -> np.ndarray:
+    """
+    Calcula y cachea embeddings para evitar recálculos.
+
+    Args:
+        keywords_tuple: Tupla de keywords (hashable para cache)
+        model_name: Nombre del modelo
+
+    Returns:
+        Array de embeddings
+    """
+    from semantic_tools import get_sentence_transformer
+    model = get_sentence_transformer(model_name)
+    return model.encode(list(keywords_tuple), show_progress_bar=False)
 
 
 def calculate_keyword_similarities(
@@ -250,35 +336,52 @@ def render_2d_visualization(
     embeddings: np.ndarray,
     keywords: List[str],
     method: str = "tsne",
-    perplexity: int = 5
+    perplexity: int = 5,
+    max_iter: int = 1000,
+    umap_n_neighbors: int = 15,
+    umap_min_dist: float = 0.1,
+    sizes: Optional[List[float]] = None,
 ) -> go.Figure:
     """
-    Visualización 2D de embeddings con T-SNE o PCA.
+    Visualización 2D de embeddings con T-SNE, PCA o UMAP.
 
     Args:
         embeddings: Array de embeddings
         keywords: Lista de keywords correspondientes
-        method: 'tsne' o 'pca'
-        perplexity: Perplexity para T-SNE (ignorado si method='pca')
+        method: 'tsne', 'pca' o 'umap'
+        perplexity: Perplexity para T-SNE
+        max_iter: Iteraciones máximas para T-SNE
+        umap_n_neighbors: Neighbors para UMAP
+        umap_min_dist: Min distance para UMAP
+        sizes: Tamaños opcionales por punto (ej. volumen de búsqueda)
 
     Returns:
         Figura de Plotly
     """
-    # Reducción de dimensionalidad
-    if method == "tsne":
-        # Ajustar perplexity si hay pocas keywords
-        n_samples = len(keywords)
-        perplexity = min(perplexity, n_samples - 1)
+    n_samples = len(keywords)
 
+    # Reducción de dimensionalidad
+    if method == "umap" and UMAP_AVAILABLE:
+        n_neighbors_adj = min(umap_n_neighbors, n_samples - 1)
+        reducer = UMAP(
+            n_components=2,
+            n_neighbors=max(2, n_neighbors_adj),
+            min_dist=umap_min_dist,
+            random_state=42,
+        )
+        coords_2d = reducer.fit_transform(embeddings)
+        method_name = "UMAP"
+    elif method == "tsne":
+        perplexity = min(perplexity, n_samples - 1)
         if n_samples < 4:
-            st.warning(f"T-SNE requiere al menos 4 palabras. Usando PCA en su lugar.")
+            st.warning("T-SNE requiere al menos 4 palabras. Usando PCA en su lugar.")
             method = "pca"
         else:
             reducer = TSNE(
                 n_components=2,
                 perplexity=perplexity,
                 random_state=42,
-                max_iter=1000
+                max_iter=max_iter,
             )
             coords_2d = reducer.fit_transform(embeddings)
             method_name = "T-SNE"
@@ -292,36 +395,33 @@ def render_2d_visualization(
     df_plot = pd.DataFrame({
         'x': coords_2d[:, 0],
         'y': coords_2d[:, 1],
-        'keyword': keywords
+        'keyword': keywords,
     })
 
-    # Crear scatter plot
-    fig = px.scatter(
-        df_plot,
-        x='x',
-        y='y',
-        text='keyword',
+    scatter_kwargs = dict(
+        x='x', y='y', text='keyword',
         title=f'Relaciones Semánticas ({method_name})',
-        labels={'x': f'{method_name} Dimensión 1', 'y': f'{method_name} Dimensión 2'}
+        labels={'x': f'{method_name} Dimensión 1', 'y': f'{method_name} Dimensión 2'},
     )
 
-    # Personalizar puntos y etiquetas
+    if sizes is not None:
+        df_plot['size'] = sizes
+        scatter_kwargs['size'] = 'size'
+        scatter_kwargs['size_max'] = 40
+
+    fig = px.scatter(df_plot, **scatter_kwargs)
+
+    marker_opts = dict(color='#97C2FC', line=dict(width=2, color='#2B7CE9'))
+    if sizes is None:
+        marker_opts['size'] = 15
+
     fig.update_traces(
         textposition='top center',
-        marker=dict(
-            size=15,
-            color='#97C2FC',
-            line=dict(width=2, color='#2B7CE9')
-        ),
-        textfont=dict(size=12, color='black')
+        marker=marker_opts,
+        textfont=dict(size=12, color='black'),
     )
 
-    fig.update_layout(
-        height=600,
-        width=800,
-        showlegend=False,
-        hovermode='closest'
-    )
+    fig.update_layout(height=600, width=800, showlegend=False, hovermode='closest')
 
     return fig
 
@@ -406,8 +506,8 @@ def render_semantic_relations():
     Visualiza similitudes, conexiones y agrupaciones de forma interactiva.
     """)
 
-    # Cargar modelo - usando import local
-    from semantic_tools import get_sentence_transformer, DEFAULT_SENTENCE_MODEL, AVAILABLE_MODELS, MODEL_DESCRIPTIONS
+    # Imports locales
+    from semantic_tools import AVAILABLE_MODELS, MODEL_DESCRIPTIONS
 
     # Sección de entrada de keywords
     st.header("📝 Configuración")
@@ -417,57 +517,128 @@ def render_semantic_relations():
     with col1:
         keywords_input = st.text_area(
             "Introduce palabras clave (una por línea)",
-            height=200,
+            height=150,
             placeholder="marketing digital\nSEO\nSEM\npublicidad online\nredes sociales\ncontent marketing\nemail marketing",
             help="Introduce al menos 3 palabras clave para obtener resultados significativos"
         )
 
+        # Fase 3 - Mejora 6: Cargar CSV con metadata
+        with st.expander("📁 Cargar keywords desde CSV con metadata (opcional)", expanded=False):
+            st.caption(
+                "Sube un CSV/Excel con keywords y datos como volumen de búsqueda o CPC. "
+                "Los datos se usarán para ajustar el tamaño de los nodos en las visualizaciones."
+            )
+            metadata_file = st.file_uploader(
+                "Archivo de keywords con metadata",
+                type=["csv", "xlsx", "xls"],
+                key="sr_metadata_uploader",
+                label_visibility="collapsed",
+            )
+            metadata_kw_col = None
+            metadata_size_col = None
+            metadata_df = None
+
+            if metadata_file:
+                try:
+                    if metadata_file.name.lower().endswith(".csv"):
+                        metadata_df = pd.read_csv(metadata_file)
+                    else:
+                        metadata_df = pd.read_excel(metadata_file)
+
+                    st.dataframe(metadata_df.head(), use_container_width=True)
+
+                    m_col1, m_col2 = st.columns(2)
+                    with m_col1:
+                        metadata_kw_col = st.selectbox(
+                            "Columna de keywords",
+                            options=list(metadata_df.columns),
+                            key="sr_metadata_kw_col",
+                        )
+                    with m_col2:
+                        numeric_cols = ["(Ninguna)"] + [
+                            c for c in metadata_df.columns
+                            if pd.api.types.is_numeric_dtype(metadata_df[c])
+                        ]
+                        metadata_size_col_raw = st.selectbox(
+                            "Columna de volumen/tamaño (opcional)",
+                            options=numeric_cols,
+                            key="sr_metadata_size_col",
+                        )
+                        metadata_size_col = (
+                            metadata_size_col_raw if metadata_size_col_raw != "(Ninguna)" else None
+                        )
+
+                    if st.button("Usar keywords del archivo", key="sr_apply_metadata"):
+                        kws_from_file = metadata_df[metadata_kw_col].dropna().astype(str).tolist()
+                        st.session_state["sr_keywords_from_file"] = kws_from_file
+                        st.session_state["sr_metadata_df"] = metadata_df
+                        st.session_state["sr_metadata_kw_col"] = metadata_kw_col
+                        st.session_state["sr_metadata_size_col"] = metadata_size_col
+                        st.success(f"{len(kws_from_file)} keywords cargadas desde archivo")
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"Error al leer archivo: {exc}")
+
     with col2:
         st.markdown("### ⚙️ Opciones")
-        
+
         # Selector de modelo
         selected_model_key = st.selectbox(
             "Modelo de embeddings",
             options=list(AVAILABLE_MODELS.keys()),
-            index=0,  # Por defecto mini
+            index=0,
             format_func=lambda x: MODEL_DESCRIPTIONS[x],
-            help="Modelos más grandes = mejor calidad pero más lentos"
+            help="Modelos más grandes = mejor calidad pero más lentos",
         )
-        
+
         selected_model_name = AVAILABLE_MODELS[selected_model_key]
 
         similarity_threshold = st.slider(
             "Umbral de similitud (grafo)",
-            min_value=0.0,
-            max_value=1.0,
-            value=0.5,
-            step=0.05,
-            help="Umbral mínimo para mostrar conexiones en el grafo de red"
+            min_value=0.0, max_value=1.0, value=0.5, step=0.05,
+            help="Umbral mínimo para mostrar conexiones en el grafo de red",
         )
+
+        # Fase 3 - Mejora 2: Selector de método con UMAP
+        viz_options = ["tsne", "pca"]
+        viz_labels = {"tsne": "T-SNE (recomendado)", "pca": "PCA (más rápido)"}
+        if UMAP_AVAILABLE:
+            viz_options.append("umap")
+            viz_labels["umap"] = "UMAP (estructura global)"
 
         visualization_method = st.selectbox(
             "Método de visualización 2D",
-            options=["tsne", "pca"],
-            format_func=lambda x: "T-SNE (recomendado)" if x == "tsne" else "PCA (más rápido)",
-            help="T-SNE preserva mejor las relaciones locales, PCA es más rápido"
+            options=viz_options,
+            format_func=lambda x: viz_labels[x],
+            help="T-SNE: relaciones locales | PCA: rápido | UMAP: estructura global",
         )
 
         n_clusters = st.number_input(
             "Número de clusters",
-            min_value=2,
-            max_value=10,
-            value=3,
-            help="Número de grupos para agrupar keywords similares"
+            min_value=2, max_value=10, value=3,
+            help="Número de grupos para agrupar keywords similares",
         )
 
-    # Cargar modelo seleccionado
-    with st.spinner(f"Cargando modelo de embeddings ({selected_model_key})..."):
-        model = get_sentence_transformer(selected_model_name)
+        # Fase 3 - Mejora 2: Parámetros avanzados
+        with st.expander("⚙️ Parámetros avanzados de visualización", expanded=False):
+            if visualization_method == "tsne":
+                adv_perplexity = st.slider("Perplexity", 2, 50, 5, key="sr_perplexity")
+                adv_max_iter = st.slider("Iteraciones máx.", 250, 5000, 1000, step=250, key="sr_max_iter")
+            elif visualization_method == "umap" and UMAP_AVAILABLE:
+                adv_umap_neighbors = st.slider("Neighbors", 2, 50, 15, key="sr_umap_neighbors")
+                adv_umap_min_dist = st.slider("Min distance", 0.0, 1.0, 0.1, step=0.05, key="sr_umap_min_dist")
+
+    # Resolver keywords (del text_area o del archivo cargado)
+    keywords_from_file = st.session_state.get("sr_keywords_from_file")
+    if keywords_from_file:
+        keywords_raw = keywords_from_file
+    elif keywords_input:
+        keywords_raw = [kw.strip() for kw in keywords_input.split('\n') if kw.strip()]
+    else:
+        keywords_raw = []
 
     # Procesar keywords
-    if keywords_input:
-        keywords_raw = [kw.strip() for kw in keywords_input.split('\n') if kw.strip()]
-        
+    if keywords_raw:
         # Normalizar y eliminar duplicados
         keywords, duplicates_removed = normalize_keywords(keywords_raw)
 
@@ -483,9 +654,28 @@ def render_semantic_relations():
             if duplicates_removed > 0:
                 st.warning(f"⚠️ {duplicates_removed} duplicado(s) eliminado(s)")
 
-        # Calcular similitudes
-        with st.spinner("Calculando similitudes semánticas..."):
-            embeddings, similarity_df = calculate_keyword_similarities(keywords, model)
+        # Fase 2 - Mejora 8: Cache de embeddings
+        with st.spinner(f"Calculando embeddings ({selected_model_key})..."):
+            embeddings = get_embeddings_cached(tuple(keywords), selected_model_name)
+
+        similarity_matrix = cosine_similarity(embeddings)
+        similarity_df = pd.DataFrame(similarity_matrix, index=keywords, columns=keywords)
+
+        # Resolver tamaños desde metadata (volumen de búsqueda)
+        sizes = None
+        meta_df_session = st.session_state.get("sr_metadata_df")
+        meta_kw_col_session = st.session_state.get("sr_metadata_kw_col")
+        meta_size_col_session = st.session_state.get("sr_metadata_size_col")
+
+        if meta_df_session is not None and meta_kw_col_session and meta_size_col_session:
+            size_map = dict(zip(
+                meta_df_session[meta_kw_col_session].astype(str).str.strip().str.lower(),
+                meta_df_session[meta_size_col_session],
+            ))
+            sizes = [float(size_map.get(kw.lower(), 10)) for kw in keywords]
+            # Normalizar a rango razonable para visualización
+            max_s = max(sizes) if max(sizes) > 0 else 1
+            sizes = [max(5, (s / max_s) * 40) for s in sizes]
 
         # Mostrar sugerencias de threshold
         thresholds = suggest_threshold(similarity_df)
@@ -504,6 +694,16 @@ def render_semantic_relations():
                 f"Tu umbral actual es **{similarity_threshold:.2f}**. "
                 "Ajústalo arriba en ⚙️ Opciones según el nivel de detalle que necesites."
             )
+
+        # Fase 2 - Mejora 7: Detección de outliers
+        outliers = detect_outliers(similarity_df, threshold=0.3)
+        if len(outliers) > 0:
+            with st.expander(f"🔍 {len(outliers)} keyword(s) con baja similitud general (posibles outliers)", expanded=False):
+                st.caption("Estas keywords tienen una similitud promedio baja con el resto. "
+                           "Podrían no pertenecer al mismo tema o ser demasiado genéricas/específicas.")
+                outlier_df = outliers.reset_index()
+                outlier_df.columns = ["Keyword", "Similitud promedio"]
+                st.dataframe(outlier_df, use_container_width=True, hide_index=True)
 
         # Tabs para diferentes visualizaciones
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
@@ -593,27 +793,75 @@ def render_semantic_relations():
             - La distancia representa diferencia semántica
             """)
 
+            viz_kwargs = dict(
+                embeddings=embeddings,
+                keywords=keywords,
+                method=visualization_method,
+                sizes=sizes,
+            )
+            if visualization_method == "tsne":
+                viz_kwargs["perplexity"] = st.session_state.get("sr_perplexity", 5)
+                viz_kwargs["max_iter"] = st.session_state.get("sr_max_iter", 1000)
+            elif visualization_method == "umap" and UMAP_AVAILABLE:
+                viz_kwargs["umap_n_neighbors"] = st.session_state.get("sr_umap_neighbors", 15)
+                viz_kwargs["umap_min_dist"] = st.session_state.get("sr_umap_min_dist", 0.1)
+
             with st.spinner(f"Calculando proyección {visualization_method.upper()}..."):
-                fig_2d = render_2d_visualization(
-                    embeddings,
-                    keywords,
-                    method=visualization_method
-                )
+                fig_2d = render_2d_visualization(**viz_kwargs)
 
             st.plotly_chart(fig_2d, use_container_width=True)
 
-            st.info(f"""
-            **Método usado:** {visualization_method.upper()}
-            - **T-SNE:** Preserva mejor las relaciones locales (recomendado para visualización)
-            - **PCA:** Más rápido, preserva mejor la varianza global
-            """)
+            methods_info = {
+                "tsne": "**T-SNE:** Preserva mejor las relaciones locales (recomendado para visualización)",
+                "pca": "**PCA:** Más rápido, preserva mejor la varianza global",
+                "umap": "**UMAP:** Preserva estructura local y global, bueno para datasets grandes",
+            }
+            st.info(f"**Método usado:** {visualization_method.upper()}\n\n"
+                    + "\n\n".join(f"- {v}" for v in methods_info.values()))
 
         # Tab 4: Clustering
         with tab4:
             st.subheader("Agrupación por Similitud Semántica")
 
+            # Fase 2 - Mejora 4: Auto-detección de clusters
+            auto_detect = st.checkbox(
+                "Auto-detectar número óptimo de clusters",
+                value=False,
+                key="sr_auto_clusters",
+            )
+
+            effective_n_clusters = n_clusters
+            if auto_detect and len(keywords) >= 4:
+                with st.spinner("Buscando número óptimo de clusters..."):
+                    optimal_n, cluster_scores = find_optimal_clusters(embeddings, max_clusters=min(10, len(keywords) - 1))
+
+                effective_n_clusters = optimal_n
+                st.success(f"Número óptimo detectado: **{optimal_n} clusters** (Silhouette Score más alto)")
+
+                # Gráfico de scores
+                fig_scores = px.line(
+                    x=[s[0] for s in cluster_scores],
+                    y=[s[1] for s in cluster_scores],
+                    labels={'x': 'Número de clusters', 'y': 'Silhouette Score'},
+                    title='Calidad del Clustering por Número de Grupos',
+                    markers=True,
+                )
+                # Marcar el óptimo
+                fig_scores.add_vline(x=optimal_n, line_dash="dash", line_color="green",
+                                     annotation_text=f"Óptimo: {optimal_n}")
+                st.plotly_chart(fig_scores, use_container_width=True)
+            elif auto_detect:
+                st.warning("Se necesitan al menos 4 keywords para la auto-detección.")
+
             with st.spinner("Agrupando keywords..."):
-                labels, cluster_df = perform_clustering(embeddings, keywords, n_clusters)
+                labels, cluster_df = perform_clustering(embeddings, keywords, effective_n_clusters)
+
+            # Silhouette score del clustering actual
+            if len(set(labels)) > 1:
+                current_silhouette = silhouette_score(embeddings, labels)
+                st.metric("Silhouette Score (calidad)", f"{current_silhouette:.3f}",
+                          help="Valores cercanos a 1 = clusters bien separados. "
+                               "Valores cercanos a 0 = clusters solapados.")
 
             # Mostrar tabla de clusters
             st.dataframe(
@@ -627,8 +875,12 @@ def render_semantic_relations():
 
             # Reducir dimensionalidad
             if len(keywords) >= 4 and visualization_method == "tsne":
-                perplexity = min(5, len(keywords) - 1)
-                reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42)
+                perp = min(5, len(keywords) - 1)
+                reducer = TSNE(n_components=2, perplexity=perp, random_state=42)
+                coords_2d = reducer.fit_transform(embeddings)
+            elif visualization_method == "umap" and UMAP_AVAILABLE and len(keywords) >= 4:
+                n_neigh = min(15, len(keywords) - 1)
+                reducer = UMAP(n_components=2, n_neighbors=max(2, n_neigh), random_state=42)
                 coords_2d = reducer.fit_transform(embeddings)
             else:
                 reducer = PCA(n_components=2, random_state=42)
