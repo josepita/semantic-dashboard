@@ -171,8 +171,6 @@ def render_gsc_connection_panel() -> Optional[GSCClient]:
             if 'gsc_oauth_flow' not in st.session_state:
                 flow = create_oauth_flow(client_id, client_secret)
                 st.session_state['gsc_oauth_flow'] = flow
-                st.session_state['gsc_client_id'] = client_id
-                st.session_state['gsc_client_secret'] = client_secret
 
             flow = st.session_state['gsc_oauth_flow']
             auth_url = get_authorization_url(flow)
@@ -181,7 +179,15 @@ def render_gsc_connection_panel() -> Optional[GSCClient]:
             st.markdown("**Paso 1:** Haz clic en el enlace para autorizar:")
             st.markdown(f"[🔗 Autorizar acceso a Search Console]({auth_url})")
 
-            st.markdown("**Paso 2:** Copia el código de autorización y pégalo aquí:")
+            st.markdown(
+                "**Paso 2:** Después de autorizar, el navegador redirigirá a una página "
+                "que no cargará (esto es normal). **Copia el código** del parámetro `code=` "
+                "de la URL en la barra de direcciones."
+            )
+            st.caption(
+                "Ejemplo: `http://localhost/?code=4/0AfJohXl...&scope=...` → "
+                "copia solo `4/0AfJohXl...` (hasta antes de `&scope`)"
+            )
             auth_code = st.text_input(
                 "Código de autorización",
                 key="gsc_auth_code",

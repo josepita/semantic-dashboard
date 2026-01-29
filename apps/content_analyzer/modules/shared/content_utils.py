@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
+from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
@@ -791,6 +792,82 @@ def get_linkable_page_stats(
 # CARGA DE DATOS DE CRAWL (SCREAMING FROG)
 # ============================================================================
 
+
+def extract_domain(url: str) -> str:
+    """
+    Extrae el dominio base de una URL.
+
+    Normaliza el dominio eliminando www. y convirtiendo a minúsculas.
+
+    Args:
+        url: URL completa
+
+    Returns:
+        Dominio normalizado (sin www., en minúsculas)
+
+    Example:
+        >>> extract_domain("https://www.example.com/path/page")
+        'example.com'
+        >>> extract_domain("http://blog.example.com/article")
+        'blog.example.com'
+    """
+    if not url or not isinstance(url, str):
+        return ""
+
+    url = url.strip().lower()
+
+    # Añadir esquema si no tiene
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc or ""
+        # Eliminar www.
+        if domain.startswith('www.'):
+            domain = domain[4:]
+        return domain
+    except Exception:
+        return ""
+
+
+def detect_primary_domain(urls: List[str]) -> str:
+    """
+    Detecta el dominio principal de una lista de URLs.
+
+    Usa el dominio más frecuente como dominio principal del sitio.
+
+    Args:
+        urls: Lista de URLs
+
+    Returns:
+        Dominio principal detectado
+
+    Example:
+        >>> urls = [
+        ...     "https://example.com/page1",
+        ...     "https://example.com/page2",
+        ...     "https://external.com/link"
+        ... ]
+        >>> detect_primary_domain(urls)
+        'example.com'
+    """
+    if not urls:
+        return ""
+
+    domain_counts: Dict[str, int] = {}
+    for url in urls:
+        domain = extract_domain(url)
+        if domain:
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+
+    if not domain_counts:
+        return ""
+
+    # Retornar el dominio más frecuente
+    return max(domain_counts, key=domain_counts.get)
+
+
 # Mapeo de columnas conocidas de Screaming Frog a nombres estándar
 SCREAMING_FROG_COLUMN_MAPPINGS = {
     # Columnas de origen
@@ -953,6 +1030,17 @@ def load_screaming_frog_internal_links(
                 if filtered_count > 0:
                     messages.append(f"Filtrados {filtered_count} enlaces nofollow")
                 break
+
+    # Filtrar enlaces a dominios externos
+    primary_domain = detect_primary_domain(result_df['source_url'].tolist())
+    if primary_domain:
+        before_external = len(result_df)
+        target_domains = result_df['target_url'].apply(extract_domain)
+        external_mask = target_domains != primary_domain
+        result_df = result_df[~external_mask]
+        filtered_external = before_external - len(result_df)
+        if filtered_external > 0:
+            messages.append(f"Filtrados {filtered_external} enlaces a dominios externos (dominio principal: {primary_domain})")
 
     # Eliminar duplicados
     before_dedup = len(result_df)

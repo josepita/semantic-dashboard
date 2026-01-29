@@ -69,7 +69,7 @@ def check_google_api_available() -> Tuple[bool, str]:
 def create_oauth_flow(
     client_id: str,
     client_secret: str,
-    redirect_uri: str = "urn:ietf:wg:oauth:2.0:oob",
+    redirect_uri: str = "http://localhost",
 ) -> Optional[Any]:
     """
     Crea un flujo OAuth para autenticación con Google.
