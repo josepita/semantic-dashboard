@@ -19,6 +19,65 @@ import networkx as nx
 from pyvis.network import Network
 import tempfile
 import os
+import re
+
+
+def normalize_keywords(keywords_list: List[str]) -> Tuple[List[str], int]:
+    """
+    Normaliza y limpia keywords eliminando duplicados.
+    
+    Args:
+        keywords_list: Lista de keywords raw
+        
+    Returns:
+        Tupla (keywords_normalizadas, num_duplicados_eliminados)
+    """
+    normalized = []
+    seen = set()
+    duplicates = 0
+    
+    for kw in keywords_list:
+        # Convertir a minúsculas para comparación
+        kw_lower = kw.lower().strip()
+        
+        # Eliminar espacios múltiples
+        kw_clean = re.sub(r'\s+', ' ', kw_lower)
+        
+        # Evitar duplicados exactos (case-insensitive)
+        if kw_clean not in seen:
+            normalized.append(kw.strip())  # Guardar original con capitalización
+            seen.add(kw_clean)
+        else:
+            duplicates += 1
+    
+    return normalized, duplicates
+
+
+def suggest_threshold(similarity_df: pd.DataFrame) -> Dict[str, float]:
+    """
+    Sugiere valores de threshold basados en la distribución de similitudes.
+    
+    Args:
+        similarity_df: DataFrame con matriz de similitud
+        
+    Returns:
+        Diccionario con thresholds sugeridos
+    """
+    # Obtener triángulo superior (sin diagonal)
+    mask = np.triu(np.ones_like(similarity_df), k=1).astype(bool)
+    similarities = similarity_df.values[mask]
+    
+    # Calcular percentiles
+    p50 = float(np.percentile(similarities, 50))
+    p75 = float(np.percentile(similarities, 75))
+    p90 = float(np.percentile(similarities, 90))
+    
+    return {
+        "permisivo": round(p50, 2),
+        "balanceado": round(p75, 2),
+        "restrictivo": round(p90, 2)
+    }
+
 
 
 def calculate_keyword_similarities(
@@ -348,10 +407,7 @@ def render_semantic_relations():
     """)
 
     # Cargar modelo - usando import local
-    from semantic_tools import get_sentence_transformer, DEFAULT_SENTENCE_MODEL
-
-    with st.spinner("Cargando modelo de embeddings..."):
-        model = get_sentence_transformer(DEFAULT_SENTENCE_MODEL)
+    from semantic_tools import get_sentence_transformer, DEFAULT_SENTENCE_MODEL, AVAILABLE_MODELS, MODEL_DESCRIPTIONS
 
     # Sección de entrada de keywords
     st.header("📝 Configuración")
@@ -368,6 +424,17 @@ def render_semantic_relations():
 
     with col2:
         st.markdown("### ⚙️ Opciones")
+        
+        # Selector de modelo
+        selected_model_key = st.selectbox(
+            "Modelo de embeddings",
+            options=list(AVAILABLE_MODELS.keys()),
+            index=0,  # Por defecto mini
+            format_func=lambda x: MODEL_DESCRIPTIONS[x],
+            help="Modelos más grandes = mejor calidad pero más lentos"
+        )
+        
+        selected_model_name = AVAILABLE_MODELS[selected_model_key]
 
         similarity_threshold = st.slider(
             "Umbral de similitud (grafo)",
@@ -393,19 +460,50 @@ def render_semantic_relations():
             help="Número de grupos para agrupar keywords similares"
         )
 
+    # Cargar modelo seleccionado
+    with st.spinner(f"Cargando modelo de embeddings ({selected_model_key})..."):
+        model = get_sentence_transformer(selected_model_name)
+
     # Procesar keywords
     if keywords_input:
-        keywords = [kw.strip() for kw in keywords_input.split('\n') if kw.strip()]
+        keywords_raw = [kw.strip() for kw in keywords_input.split('\n') if kw.strip()]
+        
+        # Normalizar y eliminar duplicados
+        keywords, duplicates_removed = normalize_keywords(keywords_raw)
 
         if len(keywords) < 2:
             st.warning("⚠️ Introduce al menos 2 palabras clave para analizar.")
             return
 
-        st.success(f"✅ {len(keywords)} palabras clave detectadas")
+        # Mostrar información de normalización
+        col_info1, col_info2 = st.columns(2)
+        with col_info1:
+            st.success(f"✅ {len(keywords)} palabras clave únicas detectadas")
+        with col_info2:
+            if duplicates_removed > 0:
+                st.warning(f"⚠️ {duplicates_removed} duplicado(s) eliminado(s)")
 
         # Calcular similitudes
         with st.spinner("Calculando similitudes semánticas..."):
             embeddings, similarity_df = calculate_keyword_similarities(keywords, model)
+
+        # Mostrar sugerencias de threshold
+        thresholds = suggest_threshold(similarity_df)
+        with st.expander("💡 Thresholds sugeridos según tu dataset", expanded=False):
+            th_col1, th_col2, th_col3 = st.columns(3)
+            with th_col1:
+                st.metric("Permisivo", f"{thresholds['permisivo']:.2f}",
+                          help="Muestra más conexiones (percentil 50)")
+            with th_col2:
+                st.metric("Balanceado", f"{thresholds['balanceado']:.2f}",
+                          help="Equilibrio entre conexiones y claridad (percentil 75)")
+            with th_col3:
+                st.metric("Restrictivo", f"{thresholds['restrictivo']:.2f}",
+                          help="Solo conexiones fuertes (percentil 90)")
+            st.caption(
+                f"Tu umbral actual es **{similarity_threshold:.2f}**. "
+                "Ajústalo arriba en ⚙️ Opciones según el nivel de detalle que necesites."
+            )
 
         # Tabs para diferentes visualizaciones
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
