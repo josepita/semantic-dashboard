@@ -38,6 +38,7 @@ if str(modules_path) not in sys.path:
 from modules.semantic_tools import render_semantic_toolkit_section
 from modules.keyword_builder import render_semantic_keyword_builder
 from modules.semantic_relations import render_semantic_relations
+from modules.content_plan import render_content_plan
 
 # Import con manejo de errores
 try:
@@ -253,6 +254,7 @@ def main():
                 "🧰 Herramientas Semánticas",
                 "🧠 Semantic Keyword Builder",
                 "🔗 Relaciones Semánticas",
+                "📋 Content Plan Generator",
             ],
             key="tool_selector"
         )
@@ -271,6 +273,8 @@ def main():
         render_semantic_keyword_builder()
     elif tool == "🔗 Relaciones Semánticas":
         render_semantic_relations()
+    elif tool == "📋 Content Plan Generator":
+        render_content_plan()
 
 
 def render_home():
