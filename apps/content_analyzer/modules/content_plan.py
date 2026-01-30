@@ -120,12 +120,11 @@ def _compute_upload_hash(df: pd.DataFrame) -> str:
 
 
 def _upload_excel() -> Optional[pd.DataFrame]:
-    """Upload and validate Excel with required columns."""
+    """Upload Excel and let the user map columns to required fields."""
     uploaded = st.file_uploader(
         "Archivo del plan de contenidos",
         type=["csv", "xlsx", "xls"],
         key=f"{SS}uploader",
-        help="Debe contener columnas: titulo, kw, kw_secundarias",
     )
     if not uploaded:
         return None
@@ -133,25 +132,70 @@ def _upload_excel() -> Optional[pd.DataFrame]:
     try:
         name = uploaded.name.lower()
         if name.endswith(".csv"):
-            df = pd.read_csv(uploaded)
+            raw_df = pd.read_csv(uploaded)
         else:
-            df = pd.read_excel(uploaded)
+            raw_df = pd.read_excel(uploaded)
     except Exception as e:
         st.error(f"Error leyendo archivo: {e}")
         return None
 
-    # Normalize column names
-    df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+    st.dataframe(raw_df.head(5), use_container_width=True, hide_index=True)
 
-    # Check required columns
-    missing = REQUIRED_COLUMNS - set(df.columns)
-    if missing:
-        st.error(f"Columnas requeridas no encontradas: {', '.join(missing)}")
-        st.info(f"Columnas disponibles: {', '.join(df.columns)}")
+    columns = list(raw_df.columns)
+    none_option = "(No usar)"
+
+    # Auto-detect best default index for each field
+    def _guess_col(hints: List[str]) -> int:
+        for hint in hints:
+            for i, c in enumerate(columns):
+                if hint in c.strip().lower():
+                    return i
+        return 0
+
+    st.markdown("##### Mapeo de columnas")
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        titulo_col = st.selectbox(
+            "Columna de Título",
+            options=columns,
+            index=_guess_col(["titulo", "title", "nombre", "tema"]),
+            key=f"{SS}col_titulo",
+        )
+    with c2:
+        kw_col = st.selectbox(
+            "Columna de KW principal",
+            options=columns,
+            index=_guess_col(["kw", "keyword", "palabra"]),
+            key=f"{SS}col_kw",
+        )
+    with c3:
+        kw_sec_col = st.selectbox(
+            "Columna de KW secundarias",
+            options=[none_option] + columns,
+            index=_guess_col(["secundaria", "secondary", "kw_sec"]) + 1,  # +1 for none_option
+            key=f"{SS}col_kw_sec",
+        )
+
+    if not st.button("✅ Confirmar columnas", key=f"{SS}confirm_cols", type="primary"):
+        st.caption("Selecciona las columnas y pulsa confirmar para continuar.")
         return None
 
-    df = df.dropna(subset=["titulo", "kw"]).reset_index(drop=True)
-    df["kw_secundarias"] = df["kw_secundarias"].fillna("")
+    # Build normalized DataFrame
+    df = pd.DataFrame()
+    df["titulo"] = raw_df[titulo_col].astype(str)
+    df["kw"] = raw_df[kw_col].astype(str)
+    df["kw_secundarias"] = (
+        raw_df[kw_sec_col].fillna("").astype(str) if kw_sec_col != none_option else ""
+    )
+
+    # Preserve extra columns for reference
+    for col in columns:
+        if col not in [titulo_col, kw_col, kw_sec_col] and col not in df.columns:
+            df[f"_extra_{col}"] = raw_df[col]
+
+    df = df[df["titulo"].str.strip() != ""].reset_index(drop=True)
+    df = df[df["kw"].str.strip() != ""].reset_index(drop=True)
 
     return df
 
