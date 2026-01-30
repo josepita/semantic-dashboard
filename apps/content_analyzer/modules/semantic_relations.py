@@ -341,6 +341,7 @@ def render_2d_visualization(
     umap_n_neighbors: int = 15,
     umap_min_dist: float = 0.1,
     sizes: Optional[List[float]] = None,
+    volumes: Optional[List[float]] = None,
 ) -> go.Figure:
     """
     Visualización 2D de embeddings con T-SNE, PCA o UMAP.
@@ -408,6 +409,10 @@ def render_2d_visualization(
         df_plot['size'] = sizes
         scatter_kwargs['size'] = 'size'
         scatter_kwargs['size_max'] = 40
+
+    if volumes is not None:
+        df_plot['Volumen'] = [int(v) for v in volumes]
+        scatter_kwargs['hover_data'] = {'Volumen': True, 'x': False, 'y': False}
 
     fig = px.scatter(df_plot, **scatter_kwargs)
 
@@ -572,8 +577,8 @@ def render_semantic_relations():
                         kws_from_file = metadata_df[metadata_kw_col].dropna().astype(str).tolist()
                         st.session_state["sr_keywords_from_file"] = kws_from_file
                         st.session_state["sr_metadata_df"] = metadata_df
-                        st.session_state["sr_metadata_kw_col"] = metadata_kw_col
-                        st.session_state["sr_metadata_size_col"] = metadata_size_col
+                        st.session_state["_sr_metadata_kw_col_value"] = metadata_kw_col
+                        st.session_state["_sr_metadata_size_col_value"] = metadata_size_col
                         st.success(f"{len(kws_from_file)} keywords cargadas desde archivo")
                         st.rerun()
                 except Exception as exc:
@@ -663,19 +668,27 @@ def render_semantic_relations():
 
         # Resolver tamaños desde metadata (volumen de búsqueda)
         sizes = None
+        volumes_raw = None  # Valores originales (sin normalizar)
         meta_df_session = st.session_state.get("sr_metadata_df")
-        meta_kw_col_session = st.session_state.get("sr_metadata_kw_col")
-        meta_size_col_session = st.session_state.get("sr_metadata_size_col")
+        meta_kw_col_session = st.session_state.get("_sr_metadata_kw_col_value")
+        meta_size_col_session = st.session_state.get("_sr_metadata_size_col_value")
 
         if meta_df_session is not None and meta_kw_col_session and meta_size_col_session:
             size_map = dict(zip(
                 meta_df_session[meta_kw_col_session].astype(str).str.strip().str.lower(),
                 meta_df_session[meta_size_col_session],
             ))
-            sizes = [float(size_map.get(kw.lower(), 10)) for kw in keywords]
+            volumes_raw = [float(size_map.get(kw.lower(), 0)) for kw in keywords]
+            sizes = list(volumes_raw)  # Copiar para normalizar
             # Normalizar a rango razonable para visualización
             max_s = max(sizes) if max(sizes) > 0 else 1
             sizes = [max(5, (s / max_s) * 40) for s in sizes]
+
+            # Mostrar resumen de volumen
+            st.info(
+                f"📊 Datos de **{meta_size_col_session}** cargados para {sum(1 for v in volumes_raw if v > 0)}/{len(keywords)} keywords. "
+                "El tamaño de los nodos refleja el volumen de búsqueda."
+            )
 
         # Mostrar sugerencias de threshold
         thresholds = suggest_threshold(similarity_df)
@@ -798,6 +811,7 @@ def render_semantic_relations():
                 keywords=keywords,
                 method=visualization_method,
                 sizes=sizes,
+                volumes=volumes_raw,
             )
             if visualization_method == "tsne":
                 viz_kwargs["perplexity"] = st.session_state.get("sr_perplexity", 5)
@@ -863,6 +877,10 @@ def render_semantic_relations():
                           help="Valores cercanos a 1 = clusters bien separados. "
                                "Valores cercanos a 0 = clusters solapados.")
 
+            # Añadir volumen al DataFrame de clusters si está disponible
+            if volumes_raw is not None:
+                cluster_df['Volumen'] = [int(v) for v in volumes_raw]
+
             # Mostrar tabla de clusters
             st.dataframe(
                 cluster_df.sort_values('Cluster'),
@@ -894,19 +912,32 @@ def render_semantic_relations():
                 'cluster': [f"Grupo {i+1}" for i in labels]
             })
 
-            fig_clusters = px.scatter(
-                df_cluster_plot,
+            cluster_scatter_kwargs = dict(
                 x='x',
                 y='y',
                 color='cluster',
                 text='keyword',
                 title='Keywords Agrupadas por Similitud Semántica',
-                color_discrete_sequence=px.colors.qualitative.Set2
+                color_discrete_sequence=px.colors.qualitative.Set2,
             )
 
+            if volumes_raw is not None:
+                df_cluster_plot['Volumen'] = [int(v) for v in volumes_raw]
+                cluster_scatter_kwargs['hover_data'] = {'Volumen': True, 'x': False, 'y': False}
+                cluster_scatter_kwargs['size'] = 'Volumen'
+                cluster_scatter_kwargs['size_max'] = 40
+
+            fig_clusters = px.scatter(
+                df_cluster_plot,
+                **cluster_scatter_kwargs,
+            )
+
+            cluster_marker = dict(line=dict(width=2, color='white'))
+            if volumes_raw is None:
+                cluster_marker['size'] = 15
             fig_clusters.update_traces(
                 textposition='top center',
-                marker=dict(size=15, line=dict(width=2, color='white')),
+                marker=cluster_marker,
                 textfont=dict(size=11)
             )
 
