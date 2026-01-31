@@ -251,6 +251,7 @@ def main():
             "Selecciona una herramienta:",
             options=[
                 "🏠 Inicio",
+                "🔑 Configuración API",
                 "🧰 Herramientas Semánticas",
                 "🧠 Semantic Keyword Builder",
                 "🔗 Relaciones Semánticas",
@@ -267,6 +268,8 @@ def main():
     # Renderizar herramienta seleccionada
     if tool == "🏠 Inicio":
         render_home()
+    elif tool == "🔑 Configuración API":
+        render_api_settings()
     elif tool == "🧰 Herramientas Semánticas":
         render_semantic_toolkit_section()
     elif tool == "🧠 Semantic Keyword Builder":
@@ -275,6 +278,84 @@ def main():
         render_semantic_relations()
     elif tool == "📋 Content Plan Generator":
         render_content_plan()
+
+
+def render_api_settings():
+    """Renderiza la página de configuración de APIs."""
+    st.header("🔑 Configuración de APIs")
+    st.markdown("Configura aquí tus claves de API. Se guardarán en la sesión actual.")
+
+    GEMINI_MODELS = [
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-pro",
+        "gemini-1.5-flash",
+        "gemini-pro",
+    ]
+    OPENAI_MODELS = [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "gpt-4-turbo",
+        "gpt-3.5-turbo",
+    ]
+
+    col1, col2 = st.columns(2)
+
+    # ── OpenAI ──
+    with col1:
+        st.subheader("OpenAI (GPT)")
+        openai_key = st.text_input(
+            "API Key",
+            value=st.session_state.get("openai_api_key", ""),
+            type="password",
+            key="settings_openai_key",
+            help="https://platform.openai.com/api-keys",
+        )
+        openai_model = st.selectbox(
+            "Modelo",
+            options=OPENAI_MODELS,
+            index=OPENAI_MODELS.index(st.session_state.get("openai_model", "gpt-4o-mini"))
+            if st.session_state.get("openai_model", "gpt-4o-mini") in OPENAI_MODELS
+            else 1,
+            key="settings_openai_model",
+        )
+        if openai_key:
+            st.session_state["openai_api_key"] = openai_key
+            st.session_state["openai_model"] = openai_model
+            st.success("OpenAI configurado")
+        else:
+            st.info("Introduce tu API key de OpenAI")
+
+    # ── Gemini ──
+    with col2:
+        st.subheader("Google Gemini")
+        gemini_key = st.text_input(
+            "API Key",
+            value=st.session_state.get("gemini_api_key", ""),
+            type="password",
+            key="settings_gemini_key",
+            help="https://aistudio.google.com/app/apikey",
+        )
+        gemini_model = st.selectbox(
+            "Modelo",
+            options=GEMINI_MODELS,
+            index=GEMINI_MODELS.index(st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp"))
+            if st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp") in GEMINI_MODELS
+            else 0,
+            key="settings_gemini_model",
+        )
+        if gemini_key:
+            st.session_state["gemini_api_key"] = gemini_key
+            st.session_state["gemini_model_name"] = gemini_model
+            st.success("Gemini configurado")
+        else:
+            st.info("Introduce tu API key de Gemini")
+
+    # ── Summary ──
+    st.markdown("---")
+    st.subheader("Estado actual")
+    c1, c2 = st.columns(2)
+    c1.metric("OpenAI", "Configurado" if st.session_state.get("openai_api_key") else "No configurado")
+    c2.metric("Gemini", "Configurado" if st.session_state.get("gemini_api_key") else "No configurado")
 
 
 def render_home():

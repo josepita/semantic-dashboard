@@ -32,6 +32,11 @@ except ModuleNotFoundError:
     genai = None
 
 try:
+    from openai import OpenAI
+except ModuleNotFoundError:
+    OpenAI = None
+
+try:
     from umap import UMAP
 
     UMAP_AVAILABLE = True
@@ -115,6 +120,121 @@ def _compute_upload_hash(df: pd.DataFrame) -> str:
 
 
 # ══════════════════════════════════════════════════════════
+# LLM ABSTRACTION (OpenAI / Gemini)
+# ══════════════════════════════════════════════════════════
+
+PROVIDER_GEMINI = "gemini"
+PROVIDER_OPENAI = "openai"
+
+OPENAI_MODELS = [
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-3.5-turbo",
+]
+
+
+def _call_llm(prompt: str) -> str:
+    """
+    Call the configured LLM provider and return the raw text response.
+    Reads provider/key/model from session_state.
+    Raises Exception on failure.
+    """
+    provider = st.session_state.get(f"{SS}llm_provider", PROVIDER_GEMINI)
+
+    if provider == PROVIDER_OPENAI:
+        api_key = st.session_state.get("openai_api_key", "")
+        model_name = st.session_state.get("openai_model", "gpt-4o-mini")
+        if not api_key:
+            raise ValueError("API key de OpenAI no configurada")
+        if OpenAI is None:
+            raise ImportError("openai no instalado")
+
+        client = OpenAI(api_key=api_key)
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+        )
+        return response.choices[0].message.content or ""
+
+    else:  # Gemini
+        api_key = st.session_state.get("gemini_api_key", "")
+        model_name = st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp")
+        if not api_key:
+            raise ValueError("API key de Gemini no configurada")
+        if genai is None:
+            raise ImportError("google-generativeai no instalado. Instala con: pip install google-generativeai")
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name.strip() or "gemini-2.0-flash-exp")
+        response = model.generate_content(prompt)
+
+        # Check safety filter
+        if response.candidates and hasattr(response.candidates[0], "finish_reason"):
+            reason = str(response.candidates[0].finish_reason)
+            if "SAFETY" in reason.upper():
+                raise ValueError("Bloqueado por filtro de seguridad de IA")
+
+        raw = getattr(response, "text", "") or ""
+        if not raw and response.candidates:
+            raw = "".join(
+                part.text
+                for part in response.candidates[0].content.parts
+                if hasattr(part, "text")
+            )
+        return raw
+
+
+def _render_llm_config_sidebar() -> None:
+    """Render LLM provider selector in sidebar (keys are set in API Settings page)."""
+    st.markdown("#### 🤖 Proveedor de IA")
+
+    # Detect which providers are configured
+    has_openai = bool(st.session_state.get("openai_api_key"))
+    has_gemini = bool(st.session_state.get("gemini_api_key"))
+
+    if not has_openai and not has_gemini:
+        st.warning("⚠️ Configura al menos una API en **🔑 Configuración API**.")
+        return
+
+    available = []
+    if has_openai:
+        available.append(PROVIDER_OPENAI)
+    if has_gemini:
+        available.append(PROVIDER_GEMINI)
+
+    provider = st.radio(
+        "Usar",
+        options=available,
+        format_func=lambda x: "Google Gemini" if x == PROVIDER_GEMINI else "OpenAI (GPT)",
+        key=f"{SS}llm_provider",
+        horizontal=True,
+    )
+
+    if provider == PROVIDER_OPENAI:
+        model = st.session_state.get("openai_model", "gpt-4o-mini")
+        st.caption(f"Modelo: **{model}**")
+    else:
+        model = st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp")
+        st.caption(f"Modelo: **{model}**")
+
+    st.success(f"✅ {provider.capitalize()} listo")
+
+
+def _is_llm_configured() -> bool:
+    """Check if the selected LLM provider is configured."""
+    provider = st.session_state.get(f"{SS}llm_provider")
+    if not provider:
+        # No provider selected yet — check if any key exists
+        return bool(st.session_state.get("openai_api_key") or st.session_state.get("gemini_api_key"))
+    if provider == PROVIDER_OPENAI:
+        return bool(st.session_state.get("openai_api_key"))
+    else:
+        return bool(st.session_state.get("gemini_api_key"))
+
+
+# ══════════════════════════════════════════════════════════
 # PHASE 1: CORE GENERATION
 # ══════════════════════════════════════════════════════════
 
@@ -127,6 +247,7 @@ def _upload_excel() -> Optional[pd.DataFrame]:
         key=f"{SS}uploader",
     )
     if not uploaded:
+        st.session_state.pop(f"{SS}confirmed_df", None)
         return None
 
     try:
@@ -177,27 +298,32 @@ def _upload_excel() -> Optional[pd.DataFrame]:
             key=f"{SS}col_kw_sec",
         )
 
-    if not st.button("✅ Confirmar columnas", key=f"{SS}confirm_cols", type="primary"):
-        st.caption("Selecciona las columnas y pulsa confirmar para continuar.")
-        return None
+    if st.button("✅ Confirmar columnas", key=f"{SS}confirm_cols", type="primary"):
+        # Build normalized DataFrame
+        df = pd.DataFrame()
+        df["titulo"] = raw_df[titulo_col].astype(str)
+        df["kw"] = raw_df[kw_col].astype(str)
+        df["kw_secundarias"] = (
+            raw_df[kw_sec_col].fillna("").astype(str) if kw_sec_col != none_option else ""
+        )
 
-    # Build normalized DataFrame
-    df = pd.DataFrame()
-    df["titulo"] = raw_df[titulo_col].astype(str)
-    df["kw"] = raw_df[kw_col].astype(str)
-    df["kw_secundarias"] = (
-        raw_df[kw_sec_col].fillna("").astype(str) if kw_sec_col != none_option else ""
-    )
+        # Preserve extra columns for reference
+        for col in columns:
+            if col not in [titulo_col, kw_col, kw_sec_col] and col not in df.columns:
+                df[f"_extra_{col}"] = raw_df[col]
 
-    # Preserve extra columns for reference
-    for col in columns:
-        if col not in [titulo_col, kw_col, kw_sec_col] and col not in df.columns:
-            df[f"_extra_{col}"] = raw_df[col]
+        df = df[df["titulo"].str.strip() != ""].reset_index(drop=True)
+        df = df[df["kw"].str.strip() != ""].reset_index(drop=True)
 
-    df = df[df["titulo"].str.strip() != ""].reset_index(drop=True)
-    df = df[df["kw"].str.strip() != ""].reset_index(drop=True)
+        st.session_state[f"{SS}confirmed_df"] = df
+        return df
 
-    return df
+    # Return previously confirmed df if it exists (persists across reruns)
+    if f"{SS}confirmed_df" in st.session_state:
+        return st.session_state[f"{SS}confirmed_df"]
+
+    st.caption("Selecciona las columnas y pulsa confirmar para continuar.")
+    return None
 
 
 def _estimate_tokens(df: pd.DataFrame) -> Dict[str, int]:
@@ -264,37 +390,23 @@ Devuelve SOLO JSON válido, sin markdown ni comentarios:
 
 
 def _generate_headings_for_row(
-    model, titulo: str, kw_principal: str, kw_secundarias: str
+    titulo: str, kw_principal: str, kw_secundarias: str
 ) -> Tuple[Optional[dict], Optional[str]]:
     """
-    Call Gemini for one row with retry logic.
+    Call LLM for one row with retry logic.
     Returns (parsed_dict, error_string).
     """
     prompt = _build_heading_prompt(titulo, kw_principal, kw_secundarias)
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = model.generate_content(prompt)
-
-            # Check safety filter
-            if response.candidates and hasattr(response.candidates[0], "finish_reason"):
-                reason = str(response.candidates[0].finish_reason)
-                if "SAFETY" in reason.upper():
-                    return None, "Bloqueado por filtro de seguridad de IA"
-
-            raw = getattr(response, "text", "") or ""
-            if not raw and response.candidates:
-                raw = "".join(
-                    part.text
-                    for part in response.candidates[0].content.parts
-                    if hasattr(part, "text")
-                )
+            raw = _call_llm(prompt)
 
             if not raw.strip():
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(1)
                     continue
-                return None, "Respuesta vacía de Gemini"
+                return None, "Respuesta vacía del modelo"
 
             parsed = _parse_gemini_json(raw)
 
@@ -324,7 +436,7 @@ def _generate_headings_for_row(
     return None, "Error desconocido tras reintentos"
 
 
-def _batch_generate_headings(df: pd.DataFrame, model) -> Tuple[List[Optional[dict]], List[dict]]:
+def _batch_generate_headings(df: pd.DataFrame) -> Tuple[List[Optional[dict]], List[dict]]:
     """
     Process all rows with checkpoint saves.
     Returns (headings_list, errors_list).
@@ -344,7 +456,6 @@ def _batch_generate_headings(df: pd.DataFrame, model) -> Tuple[List[Optional[dic
         progress.progress((i + 1) / n, text=f"Procesando {i + 1}/{n}: {row['titulo'][:50]}...")
 
         result, error = _generate_headings_for_row(
-            model,
             str(row["titulo"]),
             str(row["kw"]),
             str(row["kw_secundarias"]),
@@ -639,8 +750,8 @@ Devuelve SOLO JSON válido:
 }}"""
 
 
-def _generate_anchor_texts(links_df: pd.DataFrame, model) -> pd.DataFrame:
-    """Call Gemini to generate anchor texts for each unique link pair."""
+def _generate_anchor_texts(links_df: pd.DataFrame) -> pd.DataFrame:
+    """Call LLM to generate anchor texts for each unique link pair."""
     if links_df.empty:
         return links_df
 
@@ -653,8 +764,7 @@ def _generate_anchor_texts(links_df: pd.DataFrame, model) -> pd.DataFrame:
 
         prompt = _build_anchor_prompt(row["source_titulo"], row["target_titulo"], row["target_kw"])
         try:
-            response = model.generate_content(prompt)
-            raw = getattr(response, "text", "") or ""
+            raw = _call_llm(prompt)
             parsed = _parse_gemini_json(raw)
             anchors_col.append(", ".join(parsed.get("anchors", [])))
             context_col.append(parsed.get("context_sentence", ""))
@@ -985,24 +1095,13 @@ def render_content_plan() -> None:
         "detecta canibalización y sugiere enlazado interno."
     )
 
-    # Gemini check
-    if genai is None:
-        st.error("Se requiere `google-generativeai`. Instala con: `pip install google-generativeai`")
-        return
-
-    from gemini_utils import (
-        configure_gemini,
-        get_gemini_api_key,
-        get_gemini_model,
-        render_gemini_config_ui,
-    )
     from semantic_tools import AVAILABLE_MODELS, MODEL_DESCRIPTIONS
 
     # Config sidebar
     with st.sidebar:
         st.markdown("---")
         st.markdown("### ⚙️ Config Content Plan")
-        api_key, model_name = render_gemini_config_ui(key_prefix="cp_")
+        _render_llm_config_sidebar()
 
         emb_model_key = st.selectbox(
             "Modelo embeddings",
@@ -1056,11 +1155,8 @@ def render_content_plan() -> None:
                 st.caption(f"🔤 {short_count} keywords cortas enriquecidas con contexto del título.")
 
             # Generate button
-            gemini_key = get_gemini_api_key()
-            gemini_model = get_gemini_model()
-
-            if not gemini_key:
-                st.warning("⚠️ Configura la API key de Gemini en la barra lateral.")
+            if not _is_llm_configured():
+                st.warning("⚠️ Configura la API key del proveedor de IA en la barra lateral.")
             else:
                 checkpoint_idx = st.session_state.get(f"{SS}checkpoint_index", 0)
                 if checkpoint_idx > 0 and checkpoint_idx < len(df):
@@ -1081,21 +1177,17 @@ def render_content_plan() -> None:
                             st.rerun()
 
                 if generate:
-                    if not configure_gemini(gemini_key):
-                        st.error("Error configurando Gemini.")
-                    else:
-                        model = genai.GenerativeModel(gemini_model.strip() or "gemini-2.0-flash-exp")
-                        with st.spinner("Generando encabezados..."):
-                            headings, errors = _batch_generate_headings(df, model)
+                    with st.spinner("Generando encabezados..."):
+                        headings, errors = _batch_generate_headings(df)
 
-                        st.session_state[f"{SS}generated_headings"] = headings
-                        generated_count = sum(1 for h in headings if h is not None)
-                        st.success(f"✅ {generated_count}/{len(df)} artículos generados correctamente.")
+                    st.session_state[f"{SS}generated_headings"] = headings
+                    generated_count = sum(1 for h in headings if h is not None)
+                    st.success(f"✅ {generated_count}/{len(df)} artículos generados correctamente.")
 
-                        if errors:
-                            with st.expander(f"⚠️ {len(errors)} errores", expanded=False):
-                                for err in errors:
-                                    st.warning(f"Fila {err['row']}: {err['titulo']} → {err['error']}")
+                    if errors:
+                        with st.expander(f"⚠️ {len(errors)} errores", expanded=False):
+                            for err in errors:
+                                st.warning(f"Fila {err['row']}: {err['titulo']} → {err['error']}")
 
             # Show generated headings
             headings = st.session_state.get(f"{SS}generated_headings")
@@ -1262,14 +1354,10 @@ def render_content_plan() -> None:
 
                 # Generate anchor texts
                 if "anchor_texts" not in links.columns:
-                    gemini_key = get_gemini_api_key()
-                    if gemini_key and st.button("✍️ Generar anchor texts con Gemini", key=f"{SS}gen_anchors"):
-                        if configure_gemini(gemini_key):
-                            gemini_model = get_gemini_model()
-                            model = genai.GenerativeModel(gemini_model.strip() or "gemini-2.0-flash-exp")
-                            links_with_anchors = _generate_anchor_texts(links, model)
-                            st.session_state[f"{SS}link_suggestions"] = links_with_anchors
-                            st.rerun()
+                    if _is_llm_configured() and st.button("✍️ Generar anchor texts con IA", key=f"{SS}gen_anchors"):
+                        links_with_anchors = _generate_anchor_texts(links)
+                        st.session_state[f"{SS}link_suggestions"] = links_with_anchors
+                        st.rerun()
 
             if orphans is not None and len(orphans) > 0 and df is not None:
                 with st.expander(f"🚨 {len(orphans)} artículos huérfanos (sin enlaces entrantes)"):
