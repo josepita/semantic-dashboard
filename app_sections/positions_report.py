@@ -13,23 +13,30 @@ Todas las funciones de análisis, parsing y generación han sido modularizadas e
 
 from typing import List, Tuple
 
+import pandas as pd
 import streamlit as st
 
+try:
+    import google.generativeai as genai
+except ModuleNotFoundError:
+    genai = None
+
 # Import módulos especializados
-from apps.gsc-insights.modules.positions_parsing import (
+from apps.gsc_insights.modules.positions_parsing import (
+    ParseResult,
     normalize_domain,
     parse_position_tracking_csv,
     parse_search_volume_file,
 )
-from apps.gsc-insights.modules.positions_analysis import (
+from apps.gsc_insights.modules.positions_analysis import (
     assign_keyword_families,
     summarize_positions_overview,
 )
-from apps.gsc-insights.modules.positions_payload import (
+from apps.gsc_insights.modules.positions_payload import (
     build_family_payload,
     build_competitive_family_payload,
 )
-from apps.gsc-insights.modules.positions_reports import (
+from apps.gsc_insights.modules.positions_reports import (
     generate_competitive_html_report,
     generate_position_report_html,
 )
@@ -118,6 +125,116 @@ def render_positions_report() -> None:
             key="positions_volume_uploader",
             help="Puede ser cualquier formato - seleccionarás las columnas después"
         )
+
+    # --- Selector de columnas para CSV de posiciones ---
+    col_mapping = None
+    _detected_se_ranking_format = None
+    if uploaded_csv:
+        from apps.gsc_insights.modules.positions_parsing import _read_file_lines, _detect_export_format
+
+        # Detectar formato SE Ranking antes de mostrar el selector de columnas
+        try:
+            _preview_lines = _read_file_lines(uploaded_csv)
+            _detected_se_ranking_format = _detect_export_format(_preview_lines)
+            uploaded_csv.seek(0)
+        except Exception:
+            _detected_se_ranking_format = "unknown"
+
+        if _detected_se_ranking_format in ("brief", "full", "serp_multi"):
+            _format_labels = {
+                "brief": "Brief Export (una fila por keyword con volumen y competidores)",
+                "full": "Full Export (historial por keyword con volumen y competidores)",
+                "serp_multi": "SERP Export (historial de posiciones 1-10 por keyword)",
+            }
+            st.success(
+                f"📋 Formato detectado: **{_format_labels.get(_detected_se_ranking_format, _detected_se_ranking_format)}**\n\n"
+                f"El archivo se procesará automáticamente al pulsar **Procesar CSV**. No necesitas configurar columnas."
+            )
+            col_mapping = None  # No se necesita mapeo manual
+        else:
+            st.markdown("#### 🔧 Configurar columnas del CSV de posiciones")
+            try:
+                uploaded_csv.seek(0)
+                csv_ext = uploaded_csv.name.split('.')[-1].lower()
+                if csv_ext in ['xlsx', 'xls']:
+                    csv_preview = pd.read_excel(uploaded_csv, engine='openpyxl' if csv_ext == 'xlsx' else None, nrows=5)
+                else:
+                    uploaded_csv.seek(0)
+                    csv_preview = None
+                    for _delim in [',', ';', '\t', '|']:
+                        for _enc in ['utf-8', 'latin-1', 'cp1252']:
+                            try:
+                                uploaded_csv.seek(0)
+                                csv_preview = pd.read_csv(uploaded_csv, delimiter=_delim, encoding=_enc, nrows=5, on_bad_lines='skip')
+                                if len(csv_preview.columns) >= 2:
+                                    break
+                                csv_preview = None
+                            except Exception:
+                                csv_preview = None
+                        if csv_preview is not None and len(csv_preview.columns) >= 2:
+                            break
+                    if csv_preview is None:
+                        uploaded_csv.seek(0)
+                        csv_preview = pd.read_csv(uploaded_csv, sep=None, engine='python', nrows=5, on_bad_lines='skip')
+                uploaded_csv.seek(0)
+
+                all_cols = list(csv_preview.columns)
+                no_selection = "— No usar —"
+                options_with_none = [no_selection] + all_cols
+
+                # Auto-detectar mejores candidatos
+                def _guess(candidates, cols):
+                    for c in cols:
+                        cl = str(c).lower().strip()
+                        for term in candidates:
+                            if term in cl:
+                                return cols.index(c)
+                    return 0
+
+                kw_terms = ["keyword", "query", "palabra clave", "consulta"]
+                pos_terms = ["position", "rank", "posicion", "ranking"]
+                url_terms = ["url", "landing page", "página", "pagina"]
+                domain_terms = ["domain", "dominio", "site"]
+
+                # Detectar si es formato SERP (Position 1, Position 2...)
+                import re as _re
+                serp_cols = [c for c in all_cols if _re.match(r'^Position\s+\d+$', str(c).strip(), _re.IGNORECASE)]
+                is_serp_format = len(serp_cols) >= 2
+
+                if is_serp_format:
+                    st.info(f"📋 Formato SERP detectado ({len(serp_cols)} columnas de posición). Solo necesitas indicar la columna de Keyword.")
+                    col_m1, = st.columns(1)
+                    with col_m1:
+                        kw_idx = _guess(kw_terms, all_cols)
+                        sel_keyword = st.selectbox("Columna de Keyword", options=all_cols, index=kw_idx, key="pos_map_keyword")
+                    col_mapping = {"keyword": sel_keyword}
+                else:
+                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                    with col_m1:
+                        kw_idx = _guess(kw_terms, all_cols)
+                        sel_keyword = st.selectbox("Columna de Keyword", options=all_cols, index=kw_idx, key="pos_map_keyword")
+                    with col_m2:
+                        pos_idx = _guess(pos_terms, all_cols)
+                        sel_position = st.selectbox("Columna de Position", options=all_cols, index=pos_idx, key="pos_map_position")
+                    with col_m3:
+                        url_idx_guess = _guess(url_terms, all_cols)
+                        sel_url = st.selectbox("Columna de URL", options=options_with_none, index=url_idx_guess + 1 if url_idx_guess > 0 else 0, key="pos_map_url")
+                    with col_m4:
+                        dom_idx_guess = _guess(domain_terms, all_cols)
+                        sel_domain = st.selectbox("Columna de Dominio", options=options_with_none, index=dom_idx_guess + 1 if dom_idx_guess > 0 else 0, key="pos_map_domain")
+
+                    col_mapping = {"keyword": sel_keyword, "position": sel_position}
+                    if sel_url != no_selection:
+                        col_mapping["url"] = sel_url
+                    if sel_domain != no_selection:
+                        col_mapping["domain"] = sel_domain
+
+                with st.expander("👁️ Vista previa del CSV de posiciones"):
+                    st.dataframe(csv_preview.head(5), use_container_width=True)
+
+            except Exception as e:
+                st.warning(f"No se pudo leer el preview del CSV: {e}")
+                col_mapping = None
 
     # Si se subió archivo de volumen, permitir selección manual de columnas
     if uploaded_volume:
@@ -293,15 +410,50 @@ def render_positions_report() -> None:
 
     if uploaded_csv and st.button("Procesar CSV", type="primary"):
         try:
-            parsed_df = parse_position_tracking_csv(uploaded_csv)
+            parse_result = parse_position_tracking_csv(uploaded_csv, column_mapping=col_mapping)
         except ValueError as exc:
             st.error(str(exc))
         else:
-            st.session_state["positions_raw_df"] = parsed_df
-            st.session_state["positions_brand"] = brand_domain
+            # Manejar tanto ParseResult como DataFrame legacy
+            if isinstance(parse_result, ParseResult):
+                parsed_df = parse_result.df
+                auto_volume_df = parse_result.volume_df
+                auto_competitors = parse_result.detected_competitors
+                auto_brand = parse_result.detected_brand_domain
+                detected_format = parse_result.export_format
+            else:
+                parsed_df = parse_result
+                auto_volume_df = None
+                auto_competitors = []
+                auto_brand = ""
+                detected_format = "standard"
 
-            # Procesar archivo de volumen si está presente
-            if uploaded_volume:
+            st.session_state["positions_raw_df"] = parsed_df
+
+            # Auto-detectar dominio de marca si vino del CSV
+            if auto_brand and not brand_domain:
+                st.session_state["positions_brand"] = auto_brand
+                brand_domain = auto_brand
+                st.info(f"🔍 Dominio detectado del CSV: **{auto_brand}**")
+            else:
+                st.session_state["positions_brand"] = brand_domain
+
+            # Auto-detectar competidores si vinieron del CSV
+            if auto_competitors:
+                existing = st.session_state.get("positions_competitors", [])
+                merged = list(dict.fromkeys(existing + auto_competitors))
+                st.session_state["positions_competitors"] = merged
+                competitor_domains[:] = merged
+                st.info(f"🔍 Competidores detectados del CSV: {', '.join(auto_competitors)}")
+
+            if detected_format != "standard":
+                st.success(f"📋 Formato detectado: **{detected_format}** — {len(parsed_df)} filas procesadas.")
+
+            # Procesar volumen: priorizar el auto-extraído del brief/full
+            if auto_volume_df is not None and not auto_volume_df.empty:
+                st.session_state["positions_volume_df"] = auto_volume_df
+                st.success(f"Se extrajeron {len(parsed_df)} filas de posiciones y {len(auto_volume_df)} registros de volumen del CSV.")
+            elif uploaded_volume:
                 try:
                     volume_df = parse_search_volume_file(uploaded_volume)
                     st.session_state["positions_volume_df"] = volume_df
@@ -311,7 +463,8 @@ def render_positions_report() -> None:
                     st.session_state["positions_volume_df"] = None
             else:
                 st.session_state["positions_volume_df"] = None
-                st.success(f"Se procesaron {len(parsed_df)} keywords.")
+                if detected_format == "standard":
+                    st.success(f"Se procesaron {len(parsed_df)} keywords.")
 
             # Clasificación automática si está habilitada y hay API key
             if st.session_state.get("positions_auto_classify", True) and gemini_api_key.strip():
