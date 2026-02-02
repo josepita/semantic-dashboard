@@ -10,6 +10,7 @@ Versión: 1.0.0
 """
 
 import json
+from contextlib import contextmanager
 from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +52,15 @@ class DataOrchestrator:
             Conexión a DuckDB
         """
         return duckdb.connect(str(self.db_path), read_only=read_only)
+
+    @contextmanager
+    def _connection(self, read_only: bool = False):
+        """Context manager que garantiza el cierre de la conexión."""
+        conn = self._get_connection(read_only=read_only)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     # ============================================================
     # URLs Management
@@ -222,6 +232,23 @@ class DataOrchestrator:
             conn.close()
             raise Exception(f"Error al guardar embedding: {e}")
 
+    def get_cached_urls(self, model: str) -> set:
+        """Return the set of URLs that already have an embedding for *model*."""
+        with self._connection(read_only=True) as conn:
+            rows = conn.execute(
+                "SELECT url FROM embeddings WHERE model = ?", (model,)
+            ).fetchall()
+        return {r[0] for r in rows}
+
+    def delete_embeddings_by_model(self, model: str) -> int:
+        """Delete all embeddings for a given model. Returns rows deleted."""
+        with self._connection() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM embeddings WHERE model = ?", (model,)
+            ).fetchone()[0]
+            conn.execute("DELETE FROM embeddings WHERE model = ?", (model,))
+        return count
+
     def get_embeddings(
         self,
         model: str,
@@ -312,24 +339,28 @@ class DataOrchestrator:
         if replace:
             conn.execute("DELETE FROM gsc_positions")
 
-        inserted = 0
-        for _, row in df.iterrows():
-            conn.execute(
-                """INSERT INTO gsc_positions (keyword, url, position, impressions, clicks, ctr, date, country, device)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    row.get("keyword"),
-                    row.get("url", ""),
-                    row.get("position"),
-                    row.get("impressions", 0),
-                    row.get("clicks", 0),
-                    row.get("ctr", 0.0),
-                    row.get("date", datetime.now().date()),
-                    row.get("country", "global"),
-                    row.get("device", "all")
-                )
-            )
-            inserted += 1
+        # Prepare DataFrame with expected columns and defaults
+        insert_df = df.copy()
+        col_defaults = {
+            "keyword": "", "url": "", "position": None,
+            "impressions": 0, "clicks": 0, "ctr": 0.0,
+            "date": datetime.now().date(), "country": "global", "device": "all",
+        }
+        for col, default in col_defaults.items():
+            if col not in insert_df.columns:
+                insert_df[col] = default
+        insert_cols = list(col_defaults.keys())
+        insert_df = insert_df[insert_cols].fillna({
+            "impressions": 0, "clicks": 0, "ctr": 0.0,
+            "country": "global", "device": "all",
+        })
+
+        # Bulk insert via DuckDB DataFrame registration
+        conn.execute(
+            "INSERT INTO gsc_positions (keyword, url, position, impressions, clicks, ctr, date, country, device) "
+            "SELECT keyword, url, position, impressions, clicks, ctr, date, country, device FROM insert_df"
+        )
+        inserted = len(insert_df)
 
         conn.close()
         return inserted

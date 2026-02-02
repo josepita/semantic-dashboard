@@ -39,7 +39,7 @@ def get_gemini_api_key() -> str:
     return ""
 
 
-def get_gemini_model(default: str = "gemini-2.0-flash-exp") -> str:
+def get_gemini_model(default: str = "gemini-2.5-flash") -> str:
     """
     Obtiene el modelo de Gemini configurado.
     
@@ -161,10 +161,11 @@ def render_gemini_config_ui(key_prefix: str = "") -> tuple[str, str]:
         model_name = st.selectbox(
             "Modelo",
             options=[
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
                 "gemini-2.0-flash-exp",
                 "gemini-1.5-pro",
                 "gemini-1.5-flash",
-                "gemini-pro"
             ],
             index=0 if current_model == "gemini-2.0-flash-exp" else 0,
             key=f"{key_prefix}gemini_model_select",

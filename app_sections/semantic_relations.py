@@ -206,6 +206,9 @@ def render_2d_visualization(
         Figura de Plotly
     """
     # Reducción de dimensionalidad
+    # Check session_state cache to avoid recomputing
+    cache_key = f"_sr_coords2d_{method}_{len(keywords)}"
+
     if method == "tsne":
         # Ajustar perplexity si hay pocas keywords
         n_samples = len(keywords)
@@ -214,19 +217,28 @@ def render_2d_visualization(
         if n_samples < 4:
             st.warning(f"T-SNE requiere al menos 4 palabras. Usando PCA en su lugar.")
             method = "pca"
+            cache_key = f"_sr_coords2d_pca_{len(keywords)}"
         else:
-            reducer = TSNE(
-                n_components=2,
-                perplexity=perplexity,
-                random_state=42,
-                max_iter=1000
-            )
-            coords_2d = reducer.fit_transform(embeddings)
+            if cache_key in st.session_state:
+                coords_2d = st.session_state[cache_key]
+            else:
+                reducer = TSNE(
+                    n_components=2,
+                    perplexity=perplexity,
+                    random_state=42,
+                    max_iter=1000
+                )
+                coords_2d = reducer.fit_transform(embeddings)
+                st.session_state[cache_key] = coords_2d
             method_name = "T-SNE"
 
     if method == "pca":
-        reducer = PCA(n_components=2, random_state=42)
-        coords_2d = reducer.fit_transform(embeddings)
+        if cache_key in st.session_state:
+            coords_2d = st.session_state[cache_key]
+        else:
+            reducer = PCA(n_components=2, random_state=42)
+            coords_2d = reducer.fit_transform(embeddings)
+            st.session_state[cache_key] = coords_2d
         method_name = "PCA"
 
     # Crear DataFrame para plotly
@@ -527,14 +539,19 @@ def render_semantic_relations():
             # Visualización de clusters en 2D
             st.markdown("### Visualización de Clusters")
 
-            # Reducir dimensionalidad
-            if len(keywords) >= 4 and visualization_method == "tsne":
+            # Reutilizar coordenadas 2D ya calculadas en Tab 3 si están disponibles
+            cache_key = f"_sr_coords2d_{visualization_method}_{len(keywords)}"
+            if cache_key in st.session_state:
+                coords_2d = st.session_state[cache_key]
+            elif len(keywords) >= 4 and visualization_method == "tsne":
                 perplexity = min(5, len(keywords) - 1)
                 reducer = TSNE(n_components=2, perplexity=perplexity, random_state=42)
                 coords_2d = reducer.fit_transform(embeddings)
+                st.session_state[cache_key] = coords_2d
             else:
                 reducer = PCA(n_components=2, random_state=42)
                 coords_2d = reducer.fit_transform(embeddings)
+                st.session_state[cache_key] = coords_2d
 
             # Crear scatter plot con clusters
             df_cluster_plot = pd.DataFrame({

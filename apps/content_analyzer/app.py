@@ -286,10 +286,11 @@ def render_api_settings():
     st.markdown("Configura aquí tus claves de API. Se guardarán en la sesión actual.")
 
     GEMINI_MODELS = [
-        "gemini-2.0-flash-exp",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.5-flash",
         "gemini-1.5-pro",
         "gemini-1.5-flash",
-        "gemini-pro",
     ]
     OPENAI_MODELS = [
         "gpt-4o",
@@ -338,8 +339,8 @@ def render_api_settings():
         gemini_model = st.selectbox(
             "Modelo",
             options=GEMINI_MODELS,
-            index=GEMINI_MODELS.index(st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp"))
-            if st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp") in GEMINI_MODELS
+            index=GEMINI_MODELS.index(st.session_state.get("gemini_model_name", "gemini-2.5-flash"))
+            if st.session_state.get("gemini_model_name", "gemini-2.5-flash") in GEMINI_MODELS
             else 0,
             key="settings_gemini_model",
         )

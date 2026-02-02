@@ -185,11 +185,13 @@ def get_initial_schema() -> str:
     );
 
     -- Insertar versión del schema
-    INSERT OR IGNORE INTO project_metadata (key, value)
-    VALUES ('schema_version', '1.0.0');
+    INSERT INTO project_metadata (key, value)
+    VALUES ('schema_version', '1.0.0')
+    ON CONFLICT DO NOTHING;
 
-    INSERT OR IGNORE INTO project_metadata (key, value)
-    VALUES ('created_at', CURRENT_TIMESTAMP::TEXT);
+    INSERT INTO project_metadata (key, value)
+    VALUES ('created_at', CURRENT_TIMESTAMP::TEXT)
+    ON CONFLICT DO NOTHING;
     """
 
 

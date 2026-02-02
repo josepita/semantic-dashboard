@@ -3,7 +3,9 @@ from __future__ import annotations
 import io
 import math
 import os
+import sys
 from collections import Counter
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
@@ -20,6 +22,11 @@ from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.preprocessing import normalize
+
+# Ensure project root is in sys.path for shared.* imports
+_project_root = str(Path(__file__).resolve().parents[3])
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
 from modules.knowledge_graph import (
     build_entity_payload_from_doc_relations,
@@ -82,15 +89,13 @@ ENTITY_PROFILE_PRESETS: Dict[str, List[str]] = {
 }
 
 
-def bordered_container():
-    """
-    Devuelve un contenedor con borde cuando la versión de Streamlit lo soporta;
-    en versiones anteriores cae a un contenedor estándar.
-    """
-    try:
-        return st.container(border=True)
-    except TypeError:
-        return st.container()
+try:
+    from shared.ui_components import bordered_container  # noqa: E402
+except ModuleNotFoundError:
+    _shared_path = Path(__file__).resolve().parents[3] / "shared"
+    if str(_shared_path) not in sys.path:
+        sys.path.insert(0, str(_shared_path))
+    from ui_components import bordered_container  # noqa: E402
 
 
 def is_spacy_available() -> bool:

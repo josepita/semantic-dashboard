@@ -293,11 +293,7 @@ def apply_global_styles() -> None:
     )
 
 
-def bordered_container():
-    try:
-        return st.container(border=True)
-    except TypeError:
-        return st.container()
+from shared.ui_components import bordered_container  # noqa: E402
 
 
 def set_app_view(view: str) -> None:

@@ -83,15 +83,41 @@ ENTITY_PROFILE_PRESETS: Dict[str, List[str]] = {
 }
 
 
-def bordered_container():
-    """
-    Devuelve un contenedor con borde cuando la versión de Streamlit lo soporta;
-    en versiones anteriores cae a un contenedor estándar.
-    """
-    try:
-        return st.container(border=True)
-    except TypeError:
-        return st.container()
+from shared.ui_components import bordered_container  # noqa: E402
+from shared.data_orchestrator import DataOrchestrator  # noqa: E402
+
+_CSV_MODEL_ID = "csv_upload"
+
+# Screaming Frog column mapping: SF name → canonical name
+_SF_COLUMN_MAP = {
+    "address": "url",
+    "status code": "status_code",
+    "indexability": "indexability",
+    "word count": "word_count",
+    "title 1": "title",
+    "meta description 1": "meta_description",
+    "h1-1": "h1",
+    "canonical link element 1": "canonical_url",
+    "content type": "content_type",
+}
+
+_SF_SIGNATURE_COLS = {"address", "status code", "indexability"}
+
+
+def _detect_screaming_frog(df: pd.DataFrame) -> bool:
+    """Return True if the DataFrame looks like a Screaming Frog export."""
+    lower_cols = {c.lower().strip() for c in df.columns}
+    return _SF_SIGNATURE_COLS.issubset(lower_cols)
+
+
+def _normalize_screaming_frog(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename Screaming Frog columns to canonical names, keeping originals."""
+    rename_map = {}
+    for col in df.columns:
+        key = col.lower().strip()
+        if key in _SF_COLUMN_MAP:
+            rename_map[col] = _SF_COLUMN_MAP[key]
+    return df.rename(columns=rename_map)
 
 
 def is_spacy_available() -> bool:
@@ -133,6 +159,7 @@ def compute_similar_pages(
     return results[:top_n]
 
 
+@st.cache_data(show_spinner=False)
 def build_similarity_matrix(
     df: pd.DataFrame,
     url_column: str,
@@ -146,17 +173,28 @@ def build_similarity_matrix(
     embeddings_norm = normalize(embeddings)
     sim_matrix = embeddings_norm @ embeddings_norm.T * 100
 
-    n = len(urls)
-    rows = []
-    for i in range(n):
-        for j in range(i + 1, n):
-            score = sim_matrix[i, j]
-            if similarity_threshold is not None and score < similarity_threshold:
-                continue
-            rows.append({"URL1": urls[i], "URL2": urls[j], "Similitud": score})
-            if max_results is not None and len(rows) >= max_results:
-                return pd.DataFrame(rows).sort_values("Similitud", ascending=False)
-    return pd.DataFrame(rows).sort_values("Similitud", ascending=False)
+    # Extract upper triangle indices efficiently with numpy
+    i_idx, j_idx = np.triu_indices(len(urls), k=1)
+    scores = sim_matrix[i_idx, j_idx]
+
+    # Apply threshold filter vectorized
+    if similarity_threshold is not None:
+        mask = scores >= similarity_threshold
+        i_idx, j_idx, scores = i_idx[mask], j_idx[mask], scores[mask]
+
+    # Sort by score descending
+    sort_order = np.argsort(scores)[::-1]
+    if max_results is not None:
+        sort_order = sort_order[:max_results]
+    i_idx, j_idx, scores = i_idx[sort_order], j_idx[sort_order], scores[sort_order]
+
+    url_arr = np.array(urls)
+    result_df = pd.DataFrame({
+        "URL1": url_arr[i_idx],
+        "URL2": url_arr[j_idx],
+        "Similitud": scores,
+    })
+    return result_df
 
 
 def extract_words_from_url(url: str) -> List[str]:
@@ -178,6 +216,7 @@ def extract_words_from_url(url: str) -> List[str]:
     return words
 
 
+@st.cache_data(show_spinner=False)
 def auto_select_cluster_count(
     df: pd.DataFrame,
     min_clusters: int,
@@ -447,6 +486,14 @@ def render_csv_workflow():
         except Exception as exc:
             st.error(f"No se pudo leer el archivo proporcionado: {exc}")
             return
+        # ── Auto-detección de formato Screaming Frog ──
+        if _detect_screaming_frog(site_df):
+            st.info(
+                "Formato Screaming Frog detectado. "
+                "Columnas renombradas automaticamente (Address → url, Word Count → word_count, etc.)."
+            )
+            site_df = _normalize_screaming_frog(site_df)
+
         st.markdown("#### Vista previa de datos")
         st.dataframe(site_df.head(), use_container_width=True)
 
@@ -456,17 +503,124 @@ def render_csv_workflow():
             options=candidate_embedding_cols or site_df.columns.tolist(),
         )
 
+        # ── Detección de columna URL (antes del procesamiento para permitir incrementalidad) ──
+        url_cols = detect_url_columns(site_df)
+        url_column = st.selectbox("Selecciona la columna de URL", options=url_cols, index=0)
+
+        force_reprocess = st.checkbox("Forzar reprocesamiento completo", value=False)
+
+        # ── Obtener DataOrchestrator si hay proyecto activo ──
+        orchestrator = None
+        proj_cfg = st.session_state.get("project_config")
+        if proj_cfg and proj_cfg.get("db_path"):
+            try:
+                orchestrator = DataOrchestrator(proj_cfg["db_path"])
+            except Exception:
+                orchestrator = None
+
+        # ── Procesamiento incremental de embeddings ──
+        # Prioridad: 1) DB persistente, 2) session_state, 3) reprocesar todo
+        current_urls = set(site_df[url_column].astype(str).str.strip())
+
+        # Check DB cache
+        db_cached_urls: set = set()
+        if orchestrator and not force_reprocess:
+            try:
+                db_cached_urls = orchestrator.get_cached_urls(_CSV_MODEL_ID) & current_urls
+            except Exception:
+                db_cached_urls = set()
+
+        # Check session_state cache
+        prev_df = st.session_state.get("processed_df")
+        prev_url_col = st.session_state.get("url_column")
+        ss_cached_urls: set = set()
+        if (
+            not force_reprocess
+            and prev_df is not None
+            and prev_url_col == url_column
+            and "EmbeddingsFloat" in prev_df.columns
+        ):
+            ss_cached_urls = set(prev_df[prev_url_col].astype(str).str.strip()) & current_urls
+
+        all_cached_urls = db_cached_urls | ss_cached_urls
+        new_urls = current_urls - all_cached_urls
+
+        if force_reprocess and orchestrator:
+            try:
+                orchestrator.delete_embeddings_by_model(_CSV_MODEL_ID)
+            except Exception:
+                pass
+
         try:
-            processed_df, info_messages = preprocess_embeddings(site_df, embedding_col)
-            st.success(f"Embeddings procesados correctamente. {len(processed_df)} filas listas.")
+            info_messages: list = []
+            parts: list = []
+
+            # 1) Restore from DB (URLs not in session but in DB)
+            db_only_urls = db_cached_urls - ss_cached_urls
+            if db_only_urls and orchestrator:
+                db_url_list = list(db_only_urls)
+                db_urls_ret, db_vectors = orchestrator.get_embedding_vectors(_CSV_MODEL_ID, db_url_list)
+                if len(db_urls_ret) > 0:
+                    db_rows = site_df[site_df[url_column].astype(str).str.strip().isin(set(db_urls_ret))].copy()
+                    url_to_vec = dict(zip(db_urls_ret, db_vectors))
+                    db_rows["EmbeddingsFloat"] = db_rows[url_column].astype(str).str.strip().map(url_to_vec)
+                    db_rows = db_rows[db_rows["EmbeddingsFloat"].notna()]
+                    parts.append(db_rows)
+
+            # 2) Reuse from session_state
+            if ss_cached_urls:
+                ss_rows = prev_df[prev_df[prev_url_col].astype(str).str.strip().isin(ss_cached_urls)]
+                parts.append(ss_rows)
+
+            # 3) Process new URLs
+            if new_urls:
+                new_rows = site_df[site_df[url_column].astype(str).str.strip().isin(new_urls)]
+                new_processed, info_messages = preprocess_embeddings(new_rows, embedding_col)
+                parts.append(new_processed)
+
+                # Persist new embeddings to DB
+                if orchestrator and not new_processed.empty and "EmbeddingsFloat" in new_processed.columns:
+                    for _, row in new_processed.iterrows():
+                        vec = row.get("EmbeddingsFloat")
+                        url_val = str(row[url_column]).strip()
+                        if vec is not None and url_val:
+                            try:
+                                orchestrator.save_embeddings(url_val, np.array(vec, dtype=np.float32), _CSV_MODEL_ID)
+                            except Exception:
+                                pass
+
+            if parts:
+                processed_df = pd.concat(parts, ignore_index=True)
+            else:
+                processed_df, info_messages = preprocess_embeddings(site_df, embedding_col)
+                # Persist all to DB
+                if orchestrator and "EmbeddingsFloat" in processed_df.columns:
+                    for _, row in processed_df.iterrows():
+                        vec = row.get("EmbeddingsFloat")
+                        url_val = str(row[url_column]).strip()
+                        if vec is not None and url_val:
+                            try:
+                                orchestrator.save_embeddings(url_val, np.array(vec, dtype=np.float32), _CSV_MODEL_ID)
+                            except Exception:
+                                pass
+
+            n_from_db = len(db_only_urls & current_urls) if db_only_urls else 0
+            n_from_ss = len(ss_cached_urls)
+            n_new = len(new_urls)
+            if n_from_db > 0 or n_from_ss > 0:
+                st.success(
+                    f"Incremental: {n_from_db + n_from_ss} URLs reutilizadas "
+                    f"({n_from_db} de BD, {n_from_ss} de sesion), "
+                    f"{n_new} nuevas. {len(processed_df)} filas listas."
+                )
+            else:
+                st.success(f"Embeddings procesados correctamente. {len(processed_df)} filas listas.")
             for msg in info_messages:
                 st.info(msg)
         except ValueError as exc:
             st.error(str(exc))
             return
 
-        url_cols = detect_url_columns(processed_df)
-        url_column = st.selectbox("Selecciona la columna de URL", options=url_cols, index=0)
         processed_df[url_column] = processed_df[url_column].astype(str).str.strip()
 
         st.session_state["raw_df"] = site_df
@@ -678,8 +832,106 @@ def render_csv_workflow():
                     mime="text/html",
                 )
 
+    # ══════════════════════════════════════════════════════════════
+    # Section: Thin / Duplicate Content Detection
+    # ══════════════════════════════════════════════════════════════
     st.divider()
-    st.subheader("4️⃣ Relevancia de palabras clave (OpenAI)")
+    st.subheader("4️⃣ Detección de contenido duplicado / thin")
+    st.caption(
+        "Identifica páginas con contenido casi idéntico (duplicado) o demasiado corto (thin) "
+        "usando la similitud de embeddings."
+    )
+
+    with st.expander("⚙️ Configuración de umbrales", expanded=False):
+        col_dup, col_near, col_thin = st.columns(3)
+        dup_threshold = col_dup.slider("Duplicado (% similitud)", 80, 100, 90, key="thin_dup_th")
+        near_threshold = col_near.slider("Near-duplicate (% similitud)", 60, 95, 80, key="thin_near_th")
+        thin_word_limit = col_thin.number_input("Thin: max palabras", min_value=50, max_value=1000, value=300, key="thin_wc")
+
+    if st.button("🔍 Analizar contenido duplicado / thin", key="thin_run", type="primary"):
+        with st.spinner("Calculando matriz de similitud..."):
+            sim_df = build_similarity_matrix(
+                processed_df, url_column,
+                similarity_threshold=near_threshold,
+                max_results=None,
+            )
+
+        duplicates = sim_df[sim_df["Similitud"] >= dup_threshold].copy()
+        near_dups = sim_df[
+            (sim_df["Similitud"] >= near_threshold) & (sim_df["Similitud"] < dup_threshold)
+        ].copy()
+
+        st.session_state["thin_duplicates"] = duplicates
+        st.session_state["thin_near_dups"] = near_dups
+
+        # Thin content detection (by word count if column available)
+        wc_candidates = [c for c in processed_df.columns if "word" in c.lower() and "count" in c.lower()]
+        thin_pages = pd.DataFrame()
+        if wc_candidates:
+            wc_col = wc_candidates[0]
+            thin_pages = processed_df[processed_df[wc_col].fillna(0).astype(float) < thin_word_limit][
+                [url_column, wc_col]
+            ].copy()
+            thin_pages = thin_pages.sort_values(wc_col)
+        st.session_state["thin_pages"] = thin_pages
+        st.session_state["thin_wc_col"] = wc_candidates[0] if wc_candidates else None
+
+    # Display results
+    duplicates = st.session_state.get("thin_duplicates")
+    near_dups = st.session_state.get("thin_near_dups")
+    thin_pages = st.session_state.get("thin_pages")
+
+    if duplicates is not None:
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("Pares duplicados", len(duplicates))
+        col_m2.metric("Near-duplicates", len(near_dups) if near_dups is not None else 0)
+        col_m3.metric(
+            "Páginas thin",
+            len(thin_pages) if thin_pages is not None and not thin_pages.empty else 0,
+        )
+
+        if not duplicates.empty:
+            st.markdown("##### Pares duplicados (>= {}%)".format(
+                st.session_state.get("thin_dup_th", 90)
+            ))
+            st.dataframe(duplicates, use_container_width=True, hide_index=True)
+
+        if near_dups is not None and not near_dups.empty:
+            st.markdown("##### Near-duplicates ({}-{}%)".format(
+                st.session_state.get("thin_near_th", 80),
+                st.session_state.get("thin_dup_th", 90),
+            ))
+            st.dataframe(near_dups, use_container_width=True, hide_index=True)
+
+        if thin_pages is not None and not thin_pages.empty:
+            wc_col = st.session_state.get("thin_wc_col", "Word Count")
+            st.markdown(f"##### Páginas thin (< {st.session_state.get('thin_wc', 300)} palabras)")
+            st.dataframe(thin_pages, use_container_width=True, hide_index=True)
+
+        # Export
+        export_parts = []
+        if not duplicates.empty:
+            export_parts.append(("Duplicados", duplicates))
+        if near_dups is not None and not near_dups.empty:
+            export_parts.append(("Near-duplicates", near_dups))
+        if thin_pages is not None and not thin_pages.empty:
+            export_parts.append(("Thin content", thin_pages))
+
+        if export_parts:
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+                for sheet_name, sheet_df in export_parts:
+                    sheet_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            st.download_button(
+                "📥 Descargar informe Excel",
+                data=buf.getvalue(),
+                file_name="thin_duplicate_report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="thin_download",
+            )
+
+    st.divider()
+    st.subheader("5\ufe0f\u20e3 Relevancia de palabras clave (OpenAI)")
     st.caption("Cruza tus keywords con embeddings para determinar qué URLs son más relevantes por query (requiere `OPENAI_API_KEY`).")
     api_key_input = st.text_input("OpenAI API Key", type="password", value=os.environ.get("OPENAI_API_KEY", ""))
     keywords_file = st.file_uploader("Archivo Excel con palabras clave", type=["xlsx", "xls"], key="keywords_upload")
@@ -718,7 +970,7 @@ def render_csv_workflow():
 
 
     st.divider()
-    st.subheader("5️⃣ Grafo de conocimiento y entidades")
+    st.subheader("6️⃣ Grafo de conocimiento y entidades")
     st.caption(
         "Audita tus textos con canonicalización de entidades, QIDs de Wikidata y tripletes SPO para evaluar E-E-A-T y Topic Authority."
     )

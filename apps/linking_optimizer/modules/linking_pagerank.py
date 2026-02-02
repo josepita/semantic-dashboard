@@ -59,22 +59,22 @@ def build_similarity_edges(
     for idx in range(n):
         # Similitud coseno: producto punto con embeddings normalizados
         sims = embeddings_norm @ embeddings_norm[idx]
-        # Ordenar descendente
-        order = np.argsort(sims)[::-1]
+        # Top-K+1 eficiente con argpartition (incluye self que luego excluimos)
+        k_fetch = min(top_k + 1, n)
+        top_indices = np.argpartition(sims, -k_fetch)[-k_fetch:]
+        # Ordenar solo los top-K por score descendente
+        top_indices = top_indices[np.argsort(sims[top_indices])[::-1]]
 
         added = 0
-        for candidate_idx in order:
-            # Excluir self-loop
+        for candidate_idx in top_indices:
             if candidate_idx == idx:
                 continue
 
             score = float(sims[candidate_idx])
 
-            # Aplicar umbral
             if score < min_threshold:
-                break
+                continue
 
-            # Añadir arista (mínimo score = 1e-6 para evitar ceros en PageRank)
             edges.append((urls[idx], urls[candidate_idx], max(score, 1e-6)))
 
             added += 1

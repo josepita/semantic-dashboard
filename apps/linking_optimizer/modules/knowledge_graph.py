@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sys
 from collections import Counter
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
 
 import networkx as nx
@@ -9,6 +11,11 @@ import pandas as pd
 import streamlit as st
 from pyvis.network import Network
 
+# Ensure project root is in sys.path for shared.* imports
+_project_root = str(Path(__file__).resolve().parents[3])
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
 from shared.entity_filters import (
     is_valid_entity,
     normalize_entity_text,
@@ -16,7 +23,7 @@ from shared.entity_filters import (
     lemmatize_text,
     filter_by_global_relevance,
 )
-from modules.semantic_depth import analyze_document_sds
+from shared.semantic_depth import analyze_document_sds
 from modules.semantic_tools import get_sentence_transformer
 from modules.spacy_support import (
     SUPPORTED_COREF_LANGS,

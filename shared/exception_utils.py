@@ -5,6 +5,7 @@ Este módulo proporciona clases de excepción personalizadas y helpers
 para mejorar el manejo de errores en las aplicaciones.
 """
 
+import functools
 from typing import Optional, Type
 import streamlit as st
 
@@ -262,6 +263,7 @@ def handle_errors(
             return df.groupby('col').sum()
     """
     def decorator(func):
+        @functools.wraps(func)
         def wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)

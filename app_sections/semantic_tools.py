@@ -445,17 +445,18 @@ def keyword_relevance(
 
             keyword_rows: List[Dict[str, object]] = []
             for page_idx in ranked_indices:
-                score = scores[page_idx]
-                if len(keyword_rows) < top_n or (min_score is not None and score >= min_score):
-                    keyword_rows.append(
-                        {
-                            "Keyword": keyword,
-                            "URL": df.iloc[page_idx][url_column],
-                            "RelevanceScore": score,
-                        }
-                    )
-                else:
+                if len(keyword_rows) >= top_n:
                     break
+                score = scores[page_idx]
+                if min_score is not None and score < min_score:
+                    break
+                keyword_rows.append(
+                    {
+                        "Keyword": keyword,
+                        "URL": df.iloc[page_idx][url_column],
+                        "RelevanceScore": score,
+                    }
+                )
             results.extend(keyword_rows)
         except Exception as exc:
             results.append(

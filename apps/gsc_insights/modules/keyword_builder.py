@@ -10,6 +10,9 @@ import json
 import os
 from typing import Dict, List, Sequence, Tuple
 
+import sys
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
 
@@ -18,28 +21,30 @@ try:
 except ModuleNotFoundError:
     genai = None
 
-# Gemini and UI helpers - inline implementation for standalone app
-def bordered_container():
-    """Returns a bordered container when supported, otherwise a standard container."""
-    try:
-        return st.container(border=True)
-    except TypeError:
-        return st.container()
+# Ensure project root is in sys.path for shared.* imports
+_project_root = str(Path(__file__).resolve().parents[3])
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
 
-def get_gemini_api_key_from_context() -> str:
-    import os
-    candidates = [
-        st.session_state.get("gemini_api_key"),
-        os.environ.get("GEMINI_API_KEY"),
-        os.environ.get("GOOGLE_API_KEY"),
-    ]
-    for candidate in candidates:
-        if candidate:
-            return candidate.strip()
-    return ""
-
-def get_gemini_model_from_context() -> str:
-    return st.session_state.get("gemini_model", "gemini-2.0-flash-exp")
+try:
+    from shared.ui_components import bordered_container  # noqa: E402
+    from shared.gemini_utils import (  # noqa: E402
+        get_gemini_api_key as get_gemini_api_key_from_context,
+    )
+    from shared.gemini_utils import (  # noqa: E402
+        get_gemini_model as get_gemini_model_from_context,
+    )
+except ModuleNotFoundError:
+    _shared_path = Path(__file__).resolve().parents[3] / "shared"
+    if str(_shared_path) not in sys.path:
+        sys.path.insert(0, str(_shared_path))
+    from ui_components import bordered_container  # noqa: E402
+    from gemini_utils import (  # noqa: E402
+        get_gemini_api_key as get_gemini_api_key_from_context,
+    )
+    from gemini_utils import (  # noqa: E402
+        get_gemini_model as get_gemini_model_from_context,
+    )
 
 
 def build_semantic_keyword_prompt(

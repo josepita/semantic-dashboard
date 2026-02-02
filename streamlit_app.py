@@ -1,38 +1,10 @@
 from __future__ import annotations
 
-import csv
-import importlib
-import io
-import math
 import os
-import re
-import textwrap
-import time
-import urllib.error
-import urllib.request
-from collections import Counter
-from typing import Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING, Set
+from typing import Optional, TYPE_CHECKING
 
-import json
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 import seaborn as sns
 import streamlit as st
-import streamlit.components.v1 as components
-import trafilatura
-from bs4 import BeautifulSoup
-from openai import OpenAI
-from pyvis.network import Network
-from scipy.spatial.distance import cdist
-from sklearn.cluster import KMeans
-from sklearn.manifold import TSNE
-from sklearn.metrics import silhouette_score
-from sklearn.metrics.pairwise import cosine_similarity
-from sklearn.preprocessing import normalize
-from urllib.parse import parse_qs, unquote, urlparse, urlencode
-import networkx as nx
-from sentence_transformers import SentenceTransformer
 
 from app_sections.authority_advance import (
     AuthorityGapResult,
@@ -99,49 +71,7 @@ SPACY_MODULE = None
 SPACY_DOWNLOAD_FN = None
 SPACY_IMPORT_ERROR: Optional[Exception] = None
 SUPPORTED_COREF_LANGS = {"en", "de", "fr", "pl"}
-ENTITY_PROFILE_PRESETS: Dict[str, List[str]] = {
-    "Clinica / Salud": [
-        "ORG",
-        "PERSON",
-        "PRODUCT",
-        "GPE",
-        "LOC",
-        "FAC",
-        "EVENT",
-        "LAW",
-        "NORP",
-        "LANGUAGE",
-        "WORK_OF_ART",
-        "DISEASE",
-        "SYMPTOM",
-        "MEDICATION",
-    ],
-    "Editorial / Libros": [
-        "ORG",
-        "PERSON",
-        "WORK_OF_ART",
-        "PRODUCT",
-        "EVENT",
-        "GPE",
-        "LOC",
-        "LANGUAGE",
-        "LAW",
-        "NORP",
-        "FAC",
-    ],
-    "Ecommerce / Retail": [
-        "ORG",
-        "PRODUCT",
-        "PERSON",
-        "GPE",
-        "LOC",
-        "FAC",
-        "EVENT",
-        "WORK_OF_ART",
-        "LAW",
-        "NORP",
-    ],
-}
+from shared.config import ENTITY_PROFILE_PRESETS  # noqa: E402
 
 st.set_page_config(
     page_title="Embedding Insights Dashboard",

@@ -36,7 +36,8 @@ if str(modules_path) not in sys.path:
     sys.path.insert(0, str(modules_path))
 
 # Importar módulos
-from modules.positions_report import render_positions_report
+from app_sections.positions_report import render_positions_report
+from app_sections.landing_page import render_api_settings_panel
 
 # Import con manejo de errores
 try:
@@ -230,7 +231,19 @@ def render_project_selector():
 
 def main():
     """Main application entry point."""
+    import os
+
+    if "gemini_api_key" not in st.session_state:
+        st.session_state["gemini_api_key"] = (
+            os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
+        )
+    if "gemini_model_name" not in st.session_state:
+        st.session_state["gemini_model_name"] = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
+
     apply_global_styles()
+
+    # Panel de configuración de API keys (Gemini / OpenAI)
+    render_api_settings_panel()
 
     # Título y descripción
     st.title("📊 GSC Insights & Reporting")

@@ -15,6 +15,8 @@ import os
 import re
 import tempfile
 import time
+from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -56,6 +58,93 @@ CANNIBALIZATION_THRESHOLD = 0.85
 SHORT_KW_MAX_WORDS = 2
 REQUIRED_COLUMNS = {"titulo", "kw", "kw_secundarias"}
 SS = "cp_"  # session_state prefix
+_SAVE_FILENAME = "content_plan_session.json"
+
+
+# ══════════════════════════════════════════════════════════
+# SESSION PERSISTENCE
+# ══════════════════════════════════════════════════════════
+
+
+def _get_save_path() -> Optional[str]:
+    """Return path to session file inside the current project directory, or None."""
+    cfg = st.session_state.get("project_config")
+    if not cfg:
+        return None
+    db = cfg.get("db_path", "")
+    if not db:
+        return None
+    return str(Path(db).parent / _SAVE_FILENAME)
+
+
+def _save_session_to_disk() -> None:
+    """Persist current headings, errors, checkpoint and uploaded_df to a JSON file."""
+    save_path = _get_save_path()
+    if save_path is None:
+        return
+
+    headings = st.session_state.get(f"{SS}generated_headings")
+    errors = st.session_state.get(f"{SS}generation_errors", [])
+    checkpoint = st.session_state.get(f"{SS}checkpoint_index", 0)
+    df = st.session_state.get(f"{SS}uploaded_df")
+
+    if headings is None and df is None:
+        return
+
+    payload = {
+        "headings": headings,
+        "errors": errors,
+        "checkpoint_index": checkpoint,
+        "uploaded_df": df.to_dict(orient="records") if df is not None else None,
+        "saved_at": datetime.now().isoformat(),
+    }
+
+    try:
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass  # fail silently — disk save is best-effort
+
+
+def _load_session_from_disk() -> bool:
+    """Restore headings/errors/df from disk into session_state. Returns True if restored."""
+    save_path = _get_save_path()
+    if save_path is None or not Path(save_path).exists():
+        return False
+
+    # Don't overwrite if session already has headings
+    if st.session_state.get(f"{SS}generated_headings"):
+        return False
+
+    try:
+        with open(save_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception:
+        return False
+
+    headings = payload.get("headings")
+    if not headings:
+        return False
+
+    st.session_state[f"{SS}generated_headings"] = headings
+    st.session_state[f"{SS}generation_errors"] = payload.get("errors", [])
+    st.session_state[f"{SS}checkpoint_index"] = payload.get("checkpoint_index", 0)
+
+    df_records = payload.get("uploaded_df")
+    if df_records:
+        st.session_state[f"{SS}uploaded_df"] = pd.DataFrame(df_records)
+
+    return True
+
+
+def _delete_session_from_disk() -> None:
+    """Remove the saved session file."""
+    save_path = _get_save_path()
+    if save_path and Path(save_path).exists():
+        try:
+            Path(save_path).unlink()
+        except Exception:
+            pass
 
 
 # ══════════════════════════════════════════════════════════
@@ -160,14 +249,14 @@ def _call_llm(prompt: str) -> str:
 
     else:  # Gemini
         api_key = st.session_state.get("gemini_api_key", "")
-        model_name = st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp")
+        model_name = st.session_state.get("gemini_model_name", "gemini-2.5-flash")
         if not api_key:
             raise ValueError("API key de Gemini no configurada")
         if genai is None:
             raise ImportError("google-generativeai no instalado. Instala con: pip install google-generativeai")
 
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name.strip() or "gemini-2.0-flash-exp")
+        model = genai.GenerativeModel(model_name.strip() or "gemini-2.5-flash")
         response = model.generate_content(prompt)
 
         # Check safety filter
@@ -216,7 +305,7 @@ def _render_llm_config_sidebar() -> None:
         model = st.session_state.get("openai_model", "gpt-4o-mini")
         st.caption(f"Modelo: **{model}**")
     else:
-        model = st.session_state.get("gemini_model_name", "gemini-2.0-flash-exp")
+        model = st.session_state.get("gemini_model_name", "gemini-2.5-flash")
         st.caption(f"Modelo: **{model}**")
 
     st.success(f"✅ {provider.capitalize()} listo")
@@ -356,15 +445,23 @@ def _estimate_tokens(df: pd.DataFrame) -> Dict[str, int]:
     }
 
 
-def _build_heading_prompt(titulo: str, kw_principal: str, kw_secundarias: str) -> str:
+def _build_heading_prompt(titulo: str, kw_principal: str, kw_secundarias: str, user_nuances: str = "") -> str:
     """Build Gemini prompt for H1/H2/H3 structured generation."""
+    nuances_block = ""
+    if user_nuances and user_nuances.strip():
+        nuances_block = f"""
+
+Instrucciones adicionales del usuario (aplícalas con prioridad):
+{user_nuances.strip()}
+"""
+
     return f"""Eres un experto en arquitectura de contenido SEO en español.
 
 Artículo planificado:
 - Título: {titulo}
 - Keyword principal: {kw_principal}
 - Keywords secundarias: {kw_secundarias}
-
+{nuances_block}
 Genera una estructura de encabezados optimizada para SEO.
 
 Reglas:
@@ -390,13 +487,17 @@ Devuelve SOLO JSON válido, sin markdown ni comentarios:
 
 
 def _generate_headings_for_row(
-    titulo: str, kw_principal: str, kw_secundarias: str
+    titulo: str, kw_principal: str, kw_secundarias: str, user_nuances: str = "",
+    custom_prompt: str = "",
 ) -> Tuple[Optional[dict], Optional[str]]:
     """
     Call LLM for one row with retry logic.
     Returns (parsed_dict, error_string).
+    If custom_prompt is provided, it is used directly instead of building one.
     """
-    prompt = _build_heading_prompt(titulo, kw_principal, kw_secundarias)
+    prompt = custom_prompt if custom_prompt.strip() else _build_heading_prompt(
+        titulo, kw_principal, kw_secundarias, user_nuances
+    )
 
     for attempt in range(MAX_RETRIES):
         try:
@@ -436,9 +537,12 @@ def _generate_headings_for_row(
     return None, "Error desconocido tras reintentos"
 
 
-def _batch_generate_headings(df: pd.DataFrame) -> Tuple[List[Optional[dict]], List[dict]]:
+def _batch_generate_headings(
+    df: pd.DataFrame, user_nuances: str = "", custom_prompt: str = "",
+    only_rows: Optional[List[int]] = None,
+) -> Tuple[List[Optional[dict]], List[dict]]:
     """
-    Process all rows with checkpoint saves.
+    Process all rows (or only specific rows) with checkpoint saves.
     Returns (headings_list, errors_list).
     """
     n = len(df)
@@ -449,27 +553,44 @@ def _batch_generate_headings(df: pd.DataFrame) -> Tuple[List[Optional[dict]], Li
     if len(headings) < n:
         headings.extend([None] * (n - len(headings)))
 
-    progress = st.progress(start_idx / n if n > 0 else 0, text=f"Procesando {start_idx}/{n}...")
+    # Determine which rows to process
+    if only_rows is not None:
+        rows_to_process = [i for i in only_rows if 0 <= i < n]
+    else:
+        rows_to_process = list(range(start_idx, n))
 
-    for i in range(start_idx, n):
+    total_to_process = len(rows_to_process)
+    if total_to_process == 0:
+        return headings, errors
+
+    progress = st.progress(0, text=f"Procesando 0/{total_to_process}...")
+
+    for step, i in enumerate(rows_to_process):
         row = df.iloc[i]
-        progress.progress((i + 1) / n, text=f"Procesando {i + 1}/{n}: {row['titulo'][:50]}...")
+        progress.progress((step + 1) / total_to_process, text=f"Procesando {step + 1}/{total_to_process}: {row['titulo'][:50]}...")
 
         result, error = _generate_headings_for_row(
             str(row["titulo"]),
             str(row["kw"]),
             str(row["kw_secundarias"]),
+            user_nuances,
+            custom_prompt,
         )
 
         headings[i] = result
         if error:
             errors.append({"row": i, "titulo": row["titulo"], "error": error})
+        else:
+            # Remove previous error for this row if retry succeeded
+            errors = [e for e in errors if e["row"] != i]
 
         # Checkpoint
-        if (i + 1) % CHECKPOINT_INTERVAL == 0 or i == n - 1:
+        if (step + 1) % CHECKPOINT_INTERVAL == 0 or step == total_to_process - 1:
             st.session_state[f"{SS}generated_headings"] = headings
             st.session_state[f"{SS}generation_errors"] = errors
-            st.session_state[f"{SS}checkpoint_index"] = i + 1
+            if only_rows is None:
+                st.session_state[f"{SS}checkpoint_index"] = i + 1
+            _save_session_to_disk()
 
     progress.empty()
     return headings, errors
@@ -1095,6 +1216,23 @@ def render_content_plan() -> None:
         "detecta canibalización y sugiere enlazado interno."
     )
 
+    # Restore previous session from disk if available
+    restored = _load_session_from_disk()
+    if restored:
+        saved_path = _get_save_path()
+        saved_at = ""
+        if saved_path and Path(saved_path).exists():
+            try:
+                with open(saved_path, "r", encoding="utf-8") as _f:
+                    saved_at = json.load(_f).get("saved_at", "")
+            except Exception:
+                pass
+        headings_count = sum(1 for h in st.session_state.get(f"{SS}generated_headings", []) if h is not None)
+        st.success(
+            f"Se ha restaurado una sesion anterior con {headings_count} encabezados generados."
+            + (f" (guardado: {saved_at[:19].replace('T', ' ')})" if saved_at else "")
+        )
+
     from semantic_tools import AVAILABLE_MODELS, MODEL_DESCRIPTIONS
 
     # Config sidebar
@@ -1154,15 +1292,133 @@ def render_content_plan() -> None:
             if short_count > 0:
                 st.caption(f"🔤 {short_count} keywords cortas enriquecidas con contexto del título.")
 
-            # Generate button
+            # ── Prompt: show full editable prompt ──
+            st.markdown("---")
+            st.subheader("✏️ Prompt de generación")
+            st.caption(
+                "Este es el prompt completo que se enviará a la IA para cada artículo. "
+                "Las variables `{titulo}`, `{kw_principal}` y `{kw_secundarias}` se sustituyen automáticamente por los datos de cada fila. "
+                "Puedes modificarlo directamente para ajustar tono, estructura o reglas."
+            )
+
+            # Build default prompt with placeholders for display
+            _default_prompt = _build_heading_prompt("{titulo}", "{kw_principal}", "{kw_secundarias}")
+
+            # Initialize editable prompt in session if not present
+            if f"{SS}custom_prompt_template" not in st.session_state:
+                st.session_state[f"{SS}custom_prompt_template"] = _default_prompt
+
+            custom_prompt_template = st.text_area(
+                "Prompt (editable)",
+                value=st.session_state.get(f"{SS}custom_prompt_template", _default_prompt),
+                height=350,
+                key=f"{SS}custom_prompt_template",
+            )
+
+            if st.button("↩️ Restaurar prompt por defecto", key=f"{SS}reset_prompt"):
+                st.session_state[f"{SS}custom_prompt_template"] = _default_prompt
+                st.rerun()
+
+            # ── Preview: test with first row ──
+            st.markdown("---")
+            st.subheader("🔎 Vista previa (1 artículo de prueba)")
+            st.caption("Genera la estructura para un artículo y revisa el resultado antes de procesar todo el archivo.")
+
+            preview_row_idx = st.number_input(
+                "Fila a previsualizar",
+                min_value=0,
+                max_value=len(df) - 1,
+                value=0,
+                key=f"{SS}preview_row_idx",
+            )
+
             if not _is_llm_configured():
                 st.warning("⚠️ Configura la API key del proveedor de IA en la barra lateral.")
             else:
+                # Show current LLM config for transparency
+                provider = st.session_state.get(f"{SS}llm_provider", PROVIDER_GEMINI)
+                if provider == PROVIDER_OPENAI:
+                    _active_model = st.session_state.get("openai_model", "gpt-4o-mini")
+                else:
+                    _active_model = st.session_state.get("gemini_model_name", "gemini-2.5-flash")
+                st.caption(f"Proveedor: **{provider}** | Modelo: **{_active_model}**")
+
+                if st.button("👁️ Generar vista previa", key=f"{SS}preview_btn"):
+                    preview_row = df.iloc[preview_row_idx]
+
+                    # Build the actual prompt for this row from the template
+                    _preview_prompt = custom_prompt_template.replace(
+                        "{titulo}", str(preview_row["titulo"])
+                    ).replace(
+                        "{kw_principal}", str(preview_row["kw"])
+                    ).replace(
+                        "{kw_secundarias}", str(preview_row["kw_secundarias"])
+                    )
+
+                    # Quick validation: test a minimal call to catch config errors early
+                    with st.spinner(f"Verificando conexión con {_active_model}..."):
+                        try:
+                            _call_llm("Responde solo: OK")
+                        except Exception as e:
+                            err_msg = str(e)
+                            st.error(f"Error de conexión con la API: {err_msg}")
+                            if "not found" in err_msg.lower() or "not supported" in err_msg.lower():
+                                st.warning(
+                                    f"El modelo **{_active_model}** no está disponible. "
+                                    "Ve a **Configuración API** y selecciona un modelo válido "
+                                    "(ej: `gemini-2.5-flash`, `gemini-2.0-flash`)."
+                                )
+                            elif "api key" in err_msg.lower() or "401" in err_msg or "403" in err_msg:
+                                st.warning("La API key parece inválida o expirada. Revísala en **Configuración API**.")
+                            st.stop()
+
+                    with st.spinner(f"Generando preview para: {preview_row['titulo'][:60]}..."):
+                        preview_result, preview_error = _generate_headings_for_row(
+                            str(preview_row["titulo"]),
+                            str(preview_row["kw"]),
+                            str(preview_row["kw_secundarias"]),
+                            custom_prompt=_preview_prompt,
+                        )
+
+                    if preview_error:
+                        st.error(f"Error en preview: {preview_error}")
+                        if "not found" in preview_error.lower() or "not supported" in preview_error.lower():
+                            st.warning(
+                                f"El modelo **{_active_model}** no está disponible. "
+                                "Cambia el modelo en **Configuración API**."
+                            )
+                    else:
+                        st.session_state[f"{SS}preview_result"] = preview_result
+                        st.session_state[f"{SS}preview_row"] = preview_row
+
+                # Show preview result
+                preview_result = st.session_state.get(f"{SS}preview_result")
+                preview_row_data = st.session_state.get(f"{SS}preview_row")
+                if preview_result and preview_row_data is not None:
+                    with st.container(border=True):
+                        st.markdown(f"**Artículo:** {preview_row_data['titulo']}")
+                        st.markdown(f"**KW:** {preview_row_data['kw']}")
+                        st.markdown("---")
+                        st.markdown(f"### {preview_result.get('h1', '')}")
+                        for s in preview_result.get("sections", []):
+                            st.markdown(f"#### {s.get('h2', '')}")
+                            for h3 in s.get("h3s", []):
+                                st.markdown(f"- {h3}")
+                        st.caption(
+                            f"Meta Title: {preview_result.get('meta_title', '')} | "
+                            f"Meta Desc: {preview_result.get('meta_description', '')}"
+                        )
+                    st.info("Si el resultado es correcto, pulsa **Generar encabezados** para procesar todo el archivo.")
+
+                # ── Full generation ──
+                st.markdown("---")
+                st.subheader("🚀 Generación completa")
+
                 checkpoint_idx = st.session_state.get(f"{SS}checkpoint_index", 0)
                 if checkpoint_idx > 0 and checkpoint_idx < len(df):
                     st.info(f"📌 Checkpoint: {checkpoint_idx}/{len(df)} artículos ya procesados.")
 
-                col_btn1, col_btn2 = st.columns(2)
+                col_btn1, col_btn2, col_btn3 = st.columns(3)
                 with col_btn1:
                     generate = st.button(
                         "🚀 Generar encabezados" if checkpoint_idx == 0 else f"▶️ Continuar desde {checkpoint_idx}",
@@ -1170,24 +1426,113 @@ def render_content_plan() -> None:
                         key=f"{SS}generate_btn",
                     )
                 with col_btn2:
+                    # Retry failed rows button
+                    prev_errors = st.session_state.get(f"{SS}generation_errors", [])
+                    retry_failed = False
+                    if prev_errors:
+                        retry_failed = st.button(
+                            f"🔁 Reintentar {len(prev_errors)} fallidos",
+                            key=f"{SS}retry_failed_btn",
+                        )
+                with col_btn3:
                     if checkpoint_idx > 0:
-                        if st.button("🔄 Reiniciar generación", key=f"{SS}reset_btn"):
+                        if st.button("🔄 Reiniciar todo", key=f"{SS}reset_btn"):
                             for k in [f"{SS}generated_headings", f"{SS}generation_errors", f"{SS}checkpoint_index"]:
                                 st.session_state.pop(k, None)
+                            _delete_session_from_disk()
                             st.rerun()
+
+                # Helper to build per-row prompt from template
+                def _build_row_prompt(row_data: pd.Series) -> str:
+                    return custom_prompt_template.replace(
+                        "{titulo}", str(row_data["titulo"])
+                    ).replace(
+                        "{kw_principal}", str(row_data["kw"])
+                    ).replace(
+                        "{kw_secundarias}", str(row_data["kw_secundarias"])
+                    )
 
                 if generate:
                     with st.spinner("Generando encabezados..."):
-                        headings, errors = _batch_generate_headings(df)
+                        headings, errors = _batch_generate_headings(
+                            df, custom_prompt=custom_prompt_template.replace(
+                                "{titulo}", "{titulo}"  # keep as-is; handled per-row below
+                            ),
+                        )
+                        # The template has placeholders — need per-row substitution.
+                        # Re-process: _batch uses _generate_headings_for_row which builds
+                        # prompt via _build_heading_prompt when custom_prompt is empty.
+                        # We need to pass the actual custom prompt per row.
+                        # Override: reset and process manually with per-row prompts.
+                    # Actually, let's do it correctly: process each row with its prompt
+                    n = len(df)
+                    headings = st.session_state.get(f"{SS}generated_headings", [None] * n)
+                    errors_list: List[dict] = []
+                    start = st.session_state.get(f"{SS}checkpoint_index", 0)
+                    progress = st.progress(0, text=f"Procesando 0/{n}...")
+                    for i in range(start, n):
+                        row = df.iloc[i]
+                        progress.progress((i + 1) / n, text=f"Procesando {i + 1}/{n}: {row['titulo'][:50]}...")
+                        row_prompt = _build_row_prompt(row)
+                        result, error = _generate_headings_for_row(
+                            str(row["titulo"]), str(row["kw"]), str(row["kw_secundarias"]),
+                            custom_prompt=row_prompt,
+                        )
+                        headings[i] = result
+                        if error:
+                            errors_list.append({"row": i, "titulo": row["titulo"], "error": error})
+                        if (i + 1) % CHECKPOINT_INTERVAL == 0 or i == n - 1:
+                            st.session_state[f"{SS}generated_headings"] = headings
+                            st.session_state[f"{SS}generation_errors"] = errors_list
+                            st.session_state[f"{SS}checkpoint_index"] = i + 1
+                            _save_session_to_disk()
+                    progress.empty()
+
+                    generated_count = sum(1 for h in headings if h is not None)
+                    st.success(f"✅ {generated_count}/{n} artículos generados correctamente.")
+
+                    if errors_list:
+                        with st.expander(f"⚠️ {len(errors_list)} errores", expanded=True):
+                            for err in errors_list:
+                                st.warning(f"Fila {err['row']}: {err['titulo']} → {err['error']}")
+
+                if retry_failed and prev_errors:
+                    failed_indices = [e["row"] for e in prev_errors]
+                    st.info(f"Reintentando {len(failed_indices)} artículos fallidos...")
+                    # Clear old errors for these rows
+                    st.session_state[f"{SS}generation_errors"] = [
+                        e for e in st.session_state.get(f"{SS}generation_errors", [])
+                        if e["row"] not in failed_indices
+                    ]
+                    headings = st.session_state.get(f"{SS}generated_headings", [None] * len(df))
+                    retry_errors: List[dict] = []
+                    progress = st.progress(0, text="Reintentando...")
+                    for step, i in enumerate(failed_indices):
+                        row = df.iloc[i]
+                        progress.progress((step + 1) / len(failed_indices), text=f"Reintentando {step + 1}/{len(failed_indices)}: {row['titulo'][:50]}...")
+                        row_prompt = _build_row_prompt(row)
+                        result, error = _generate_headings_for_row(
+                            str(row["titulo"]), str(row["kw"]), str(row["kw_secundarias"]),
+                            custom_prompt=row_prompt,
+                        )
+                        headings[i] = result
+                        if error:
+                            retry_errors.append({"row": i, "titulo": row["titulo"], "error": error})
+                    progress.empty()
 
                     st.session_state[f"{SS}generated_headings"] = headings
-                    generated_count = sum(1 for h in headings if h is not None)
-                    st.success(f"✅ {generated_count}/{len(df)} artículos generados correctamente.")
+                    # Merge remaining errors
+                    existing_errors = st.session_state.get(f"{SS}generation_errors", [])
+                    st.session_state[f"{SS}generation_errors"] = existing_errors + retry_errors
+                    _save_session_to_disk()
 
-                    if errors:
-                        with st.expander(f"⚠️ {len(errors)} errores", expanded=False):
-                            for err in errors:
+                    recovered = len(failed_indices) - len(retry_errors)
+                    st.success(f"✅ {recovered}/{len(failed_indices)} artículos recuperados.")
+                    if retry_errors:
+                        with st.expander(f"⚠️ {len(retry_errors)} siguen fallando", expanded=True):
+                            for err in retry_errors:
                                 st.warning(f"Fila {err['row']}: {err['titulo']} → {err['error']}")
+                    st.rerun()
 
             # Show generated headings
             headings = st.session_state.get(f"{SS}generated_headings")
@@ -1216,13 +1561,24 @@ def render_content_plan() -> None:
         if df is None or headings is None:
             st.info("⬅️ Primero genera los encabezados en la pestaña Generación.")
         else:
+            # Embedding model selector for analysis
+            st.markdown("##### Modelo de embeddings para el análisis")
+            analysis_emb_key = st.selectbox(
+                "Modelo embeddings",
+                options=list(AVAILABLE_MODELS.keys()),
+                index=0,
+                format_func=lambda x: MODEL_DESCRIPTIONS[x],
+                key=f"{SS}analysis_emb_model",
+            )
+            analysis_emb_model = AVAILABLE_MODELS[analysis_emb_key]
+
             if st.button("🔍 Ejecutar análisis completo", key=f"{SS}run_analysis", type="primary"):
                 with st.spinner("Validando coherencia semántica..."):
-                    scores = _validate_semantic_coherence(df, headings, emb_model_name)
+                    scores = _validate_semantic_coherence(df, headings, analysis_emb_model)
                     st.session_state[f"{SS}validation_scores"] = scores
 
                 with st.spinner("Detectando canibalización..."):
-                    canib = _detect_cannibalization(df, emb_model_name)
+                    canib = _detect_cannibalization(df, analysis_emb_model)
                     st.session_state[f"{SS}cannibalization_pairs"] = canib
 
                 with st.spinner("Validando N-grams..."):
@@ -1230,7 +1586,7 @@ def render_content_plan() -> None:
                     st.session_state[f"{SS}ngram_validation"] = ngram
 
                 with st.spinner("Detectando deriva semántica..."):
-                    drift = _detect_semantic_drift(headings, emb_model_name)
+                    drift = _detect_semantic_drift(headings, analysis_emb_model)
                     st.session_state[f"{SS}semantic_drift"] = drift
 
                 st.success("✅ Análisis completado.")

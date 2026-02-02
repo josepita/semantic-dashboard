@@ -91,29 +91,29 @@ COMMON_NAMES = {
     "sarah", "karen", "nancy", "lisa", "betty", "margaret", "sandra",
 }
 
-# Patrones de texto que indican ruido
+# Patrones de texto que indican ruido (precompilados para rendimiento)
 NOISE_PATTERNS = [
-    r"^[^\w\s]+$",  # Solo signos de puntuación
-    r"^[\d\s\-\.\,\/]+$",  # Solo números y separadores
-    r"^[ivxlcdm]+$",  # Solo números romanos en minúsculas
-    r"^\d{1,2}[a-z]?$",  # Números sueltos (1, 2a, 3b, etc.)
-    r"^https?://",  # URLs
-    r"^www\.",  # URLs sin protocolo
-    r"^[@#]\w+",  # Hashtags o menciones
-    r"^\s+$",  # Solo espacios en blanco
-    r"^\.+$",  # Solo puntos
-    r"^-+$",  # Solo guiones
-    r"^_+$",  # Solo guiones bajos
-    r"^\*+$",  # Solo asteriscos
-    r"^=+$",  # Solo signos igual
-    r"^\d+[.,]\d+$",  # Solo números decimales (3.14, 10,5)
-    r"^[a-z]$",  # Una sola letra minúscula
-    r"^[A-Z]$",  # Una sola letra mayúscula
-    r"^\([^)]*\)$",  # Solo texto entre paréntesis
-    r"^\[[^\]]*\]$",  # Solo texto entre corchetes
-    r"^\"[^\"]*\"$",  # Solo texto entre comillas (puede ser válido pero a menudo es ruido)
-    r"^'\w+'$",  # Palabra entre comillas simples
-    r"^(\w+\s+){10,}",  # Demasiadas palabras (probablemente un párrafo mal parseado)
+    re.compile(r"^[^\w\s]+$"),  # Solo signos de puntuación
+    re.compile(r"^[\d\s\-\.\,\/]+$"),  # Solo números y separadores
+    re.compile(r"^[ivxlcdm]+$"),  # Solo números romanos en minúsculas
+    re.compile(r"^\d{1,2}[a-z]?$"),  # Números sueltos (1, 2a, 3b, etc.)
+    re.compile(r"^https?://"),  # URLs
+    re.compile(r"^www\."),  # URLs sin protocolo
+    re.compile(r"^[@#]\w+"),  # Hashtags o menciones
+    re.compile(r"^\s+$"),  # Solo espacios en blanco
+    re.compile(r"^\.+$"),  # Solo puntos
+    re.compile(r"^-+$"),  # Solo guiones
+    re.compile(r"^_+$"),  # Solo guiones bajos
+    re.compile(r"^\*+$"),  # Solo asteriscos
+    re.compile(r"^=+$"),  # Solo signos igual
+    re.compile(r"^\d+[.,]\d+$"),  # Solo números decimales (3.14, 10,5)
+    re.compile(r"^[a-z]$"),  # Una sola letra minúscula
+    re.compile(r"^[A-Z]$"),  # Una sola letra mayúscula
+    re.compile(r"^\([^)]*\)$"),  # Solo texto entre paréntesis
+    re.compile(r"^\[[^\]]*\]$"),  # Solo texto entre corchetes
+    re.compile(r'^"[^"]*"$'),  # Solo texto entre comillas
+    re.compile(r"^'\w+'$"),  # Palabra entre comillas simples
+    re.compile(r"^(\w+\s+){10,}"),  # Demasiadas palabras (párrafo mal parseado)
 ]
 
 
@@ -130,7 +130,7 @@ def is_noise_pattern(text: str) -> bool:
     text_lower = text.lower().strip()
 
     for pattern in NOISE_PATTERNS:
-        if re.match(pattern, text_lower):
+        if pattern.match(text_lower):
             return True
 
     return False

@@ -56,6 +56,19 @@ try:
 except ImportError:
     GSC_AVAILABLE = False
 
+def _get_exclusion_masks():
+    """Return (exclude_source_mask, exclude_target_mask) from non-linkable pages config."""
+    exclude_source_mask = None
+    exclude_target_mask = None
+    non_linkable = st.session_state.get("non_linkable_mask")
+    if non_linkable is not None:
+        if st.session_state.get("exclude_non_linkable_as_source", False):
+            exclude_source_mask = non_linkable
+        if st.session_state.get("exclude_non_linkable_as_target", False):
+            exclude_target_mask = non_linkable
+    return exclude_source_mask, exclude_target_mask
+
+
 def render_linking_lab() -> None:
     """Pantalla dedicada al laboratorio de enlazado interno."""
     st.subheader("🔗 Laboratorio de enlazado interno")
@@ -132,6 +145,11 @@ def render_linking_lab() -> None:
                                 st.success("Dataset cargado correctamente para el laboratorio de enlazado.")
                                 processed_df = lab_processed_df
                                 url_column = selected_url
+
+    # Recompute after potential in-page upload
+    processed_df = st.session_state.get("processed_df")
+    url_column = st.session_state.get("url_column")
+    dataset_ready = processed_df is not None and url_column is not None
 
     if not dataset_ready:
         st.info("Carga un dataset con embeddings para empezar a trabajar en el laboratorio.")
@@ -561,15 +579,7 @@ def render_linking_lab() -> None:
                     with st.spinner("Calculando recomendaciones semánticas básicas..."):
                         try:
                             # Preparar máscaras de exclusión
-                            exclude_source_mask = None
-                            exclude_target_mask = None
-                            non_linkable = st.session_state.get("non_linkable_mask")
-
-                            if non_linkable is not None:
-                                if st.session_state.get("exclude_non_linkable_as_source", False):
-                                    exclude_source_mask = non_linkable
-                                if st.session_state.get("exclude_non_linkable_as_target", False):
-                                    exclude_target_mask = non_linkable
+                            exclude_source_mask, exclude_target_mask = _get_exclusion_masks()
 
                             # Configuración de batch
                             batch_size = st.session_state.get("linking_batch_size")
@@ -733,15 +743,7 @@ def render_linking_lab() -> None:
                     with st.spinner("Calculando recomendaciones semánticas avanzadas con silos..."):
                         try:
                             # Preparar máscaras de exclusión
-                            exclude_source_mask = None
-                            exclude_target_mask = None
-                            non_linkable = st.session_state.get("non_linkable_mask")
-
-                            if non_linkable is not None:
-                                if st.session_state.get("exclude_non_linkable_as_source", False):
-                                    exclude_source_mask = non_linkable
-                                if st.session_state.get("exclude_non_linkable_as_target", False):
-                                    exclude_target_mask = non_linkable
+                            exclude_source_mask, exclude_target_mask = _get_exclusion_masks()
 
                             report_df, orphan_urls = advanced_semantic_linking(
                                 df=processed_df,
@@ -998,15 +1000,7 @@ def render_linking_lab() -> None:
                     with st.spinner("Calculando Composite Link Score (CLS) con PageRank y entidades..."):
                         try:
                             # Preparar máscaras de exclusión
-                            exclude_source_mask = None
-                            exclude_target_mask = None
-                            non_linkable = st.session_state.get("non_linkable_mask")
-
-                            if non_linkable is not None:
-                                if st.session_state.get("exclude_non_linkable_as_source", False):
-                                    exclude_source_mask = non_linkable
-                                if st.session_state.get("exclude_non_linkable_as_target", False):
-                                    exclude_target_mask = non_linkable
+                            exclude_source_mask, exclude_target_mask = _get_exclusion_masks()
 
                             # Obtener enlaces existentes si están configurados
                             existing_edges = st.session_state.get("linking_existing_edges")
@@ -1329,15 +1323,7 @@ def render_linking_lab() -> None:
                             st.info(f"📊 Jerarquía aplicada a {df_to_use['_jerarquia_combinada'].notna().sum()} de {len(df_to_use)} URLs")
 
                     # Preparar máscaras de exclusión
-                    exclude_source_mask = None
-                    exclude_target_mask = None
-                    non_linkable = st.session_state.get("non_linkable_mask")
-
-                    if non_linkable is not None:
-                        if st.session_state.get("exclude_non_linkable_as_source", False):
-                            exclude_source_mask = non_linkable
-                        if st.session_state.get("exclude_non_linkable_as_target", False):
-                            exclude_target_mask = non_linkable
+                    exclude_source_mask, exclude_target_mask = _get_exclusion_masks()
 
                     report_df = structural_taxonomy_linking(
                         df=df_to_use,

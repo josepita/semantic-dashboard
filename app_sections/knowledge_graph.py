@@ -15,7 +15,7 @@ from app_sections.entity_filters import (
     clean_entities_advanced,
     lemmatize_text,
 )
-from app_sections.semantic_depth import analyze_document_sds
+from shared.semantic_depth import analyze_document_sds
 from app_sections.semantic_tools import get_sentence_transformer
 from app_sections.spacy_support import (
     SUPPORTED_COREF_LANGS,
@@ -254,7 +254,7 @@ def generate_knowledge_graph_html_v2(
 
     # Preparar modelo de embeddings para cálculo de cohesión vectorial (SDS)
     try:
-        embedding_model = get_sentence_transformer()
+        embedding_model = get_sentence_transformer("all-MiniLM-L6-v2")
     except Exception:
         embedding_model = None
 
