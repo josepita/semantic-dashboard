@@ -82,6 +82,7 @@ def render_sidebar_navigation() -> None:
             {"icon": "🔗", "label": "Laboratorio Enlazado", "view": "linking"},
             {"icon": "📊", "label": "Informe Posiciones", "view": "positions"},
             {"icon": "🔍", "label": "Relaciones Semánticas", "view": "relations"},
+            {"icon": "🌐", "label": "Fan-Out Analyzer", "view": "fanout"},
         ]
         
         # Crear botones de navegación
@@ -374,6 +375,15 @@ def render_landing_view() -> None:
             "view": "relations",
             "style": "primary",
             "key": "cta_relations",
+        },
+        {
+            "icon": "🌐",
+            "title": "Fan-Out Query Analyzer",
+            "body": "Extrae fan-out queries de Gemini y ChatGPT, analiza la cobertura de tu dominio con embeddings semánticos.",
+            "button": "Analizar fan-out",
+            "view": "fanout",
+            "style": "secondary",
+            "key": "cta_fanout",
         },
     ]
 

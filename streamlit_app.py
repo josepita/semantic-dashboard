@@ -46,6 +46,7 @@ from app_sections.semantic_tools import (
 from app_sections.csv_workflow import render_csv_workflow
 from app_sections.positions_report import render_positions_report
 from app_sections.semantic_relations import render_semantic_relations
+from app_sections.fanout_report import render_fanout_report
 from app_sections.landing_page import (
     render_api_settings_panel,
     apply_global_styles,
@@ -169,6 +170,8 @@ def main():
         render_positions_report()
     elif app_view == "relations":
         render_semantic_relations()
+    elif app_view == "fanout":
+        render_fanout_report()
 
 
 
