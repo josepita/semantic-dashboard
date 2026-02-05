@@ -39,6 +39,12 @@ if str(modules_path) not in sys.path:
 from app_sections.positions_report import render_positions_report
 from app_sections.landing_page import render_api_settings_panel
 
+# License management - TEMPORAL: licencias desactivadas
+# TODO: Restaurar verificación de licencias cuando esté listo
+def check_license_or_block(): return True
+def render_license_status_sidebar(): pass
+def require_feature(f, n=""): return True
+
 # Import con manejo de errores
 try:
     from project_manager import get_project_manager
@@ -85,6 +91,8 @@ st.set_page_config(
     layout="wide",
     page_icon="📊",
 )
+# Marcar que page_config ya fue configurado (para license_ui)
+st.session_state["_page_config_set"] = True
 
 
 def apply_global_styles():
@@ -231,6 +239,10 @@ def render_project_selector():
 
 def main():
     """Main application entry point."""
+    # Verificar licencia - bloquea si no hay licencia válida o trial
+    if not check_license_or_block():
+        return  # No continuar si no hay licencia
+
     import os
 
     if "gemini_api_key" not in st.session_state:
@@ -259,6 +271,9 @@ def main():
     pm = get_project_manager()
     render_export_import_sidebar(pm)
 
+    # License status
+    render_license_status_sidebar()
+
     # Sidebar - Navegación
     with st.sidebar:
         st.markdown("---")
@@ -279,10 +294,13 @@ def main():
         st.caption("Parte de Embedding Insights Suite")
 
     # Renderizar herramienta seleccionada
+    # Positions Report es PRO
     if tool == "🏠 Inicio":
         render_home()
     elif tool == "📈 Informe de Posiciones":
-        render_positions_report()
+        # Requiere licencia (feature: positions)
+        if require_feature("positions", "Informe de Posiciones"):
+            render_positions_report()
 
 
 def render_home():

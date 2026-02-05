@@ -1,7 +1,19 @@
 """Constantes y configuración centralizada del proyecto."""
 from __future__ import annotations
 
+import os
 from typing import Dict, List
+
+# ── License Server ──
+# Modo desarrollo: True = todas las features habilitadas sin servidor
+# TEMPORAL: Licencias desactivadas temporalmente
+LICENSE_DEV_MODE = True  # TODO: Cambiar a False para activar verificación de licencias
+
+# URL del servidor de licencias PHP en SiteGround
+LICENSE_SERVER_URL = os.getenv(
+    "LICENSE_SERVER_URL",
+    "https://licencia.alejandroc105.sg-host.com/license_server_php/api.php"
+)
 
 # ── Modelos Gemini disponibles ──
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"

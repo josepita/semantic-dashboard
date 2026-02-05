@@ -26,3 +26,8 @@ google-genai>=1.0.0
 fastapi>=0.115.0
 uvicorn>=0.32.0
 python-multipart>=0.0.12
+requests>=2.31.0
+plotly>=5.18.0
+
+# Development dependencies (not required for runtime)
+# pyarmor>=8.0.0  # For code obfuscation during build

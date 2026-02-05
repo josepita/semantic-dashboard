@@ -54,6 +54,11 @@ from app_sections.landing_page import (
     render_landing_view,
     render_sidebar_navigation,
 )
+from shared.license_ui import (
+    init_license_check,
+    render_license_status_sidebar,
+    require_feature,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - solo para anotaciones
     import spacy  # noqa: F401
@@ -85,8 +90,11 @@ sns.set_theme(style="whitegrid")
 
 
 def main():
+    # Inicializar verificación de licencia
+    init_license_check()
+
     apply_global_styles()
-    st.title("ðŸ“ˆ Embedding Insights Dashboard")
+    st.title("ðŸ"ˆ Embedding Insights Dashboard")
     st.markdown(
         "Sube tus datos de embeddings para descubrir similitudes entre URLs, agruparlas en clusters "
         "y analizar la relevancia frente a palabras clave."
@@ -137,7 +145,8 @@ def main():
         st.session_state["app_view"] = "landing"
 
     render_api_settings_panel()
-    render_sidebar_navigation()  # â† Nueva lÃ­nea: menÃº de navegaciÃ³n permanente
+    render_sidebar_navigation()
+    render_license_status_sidebar()  # Estado de licencia en sidebar
 
     app_view = st.session_state["app_view"]
 
@@ -163,15 +172,20 @@ def main():
     elif app_view == "tools":
         render_semantic_toolkit_section()
     elif app_view == "keywords":
-        render_semantic_keyword_builder()
+        if require_feature("keywords", "Keyword Builder"):
+            render_semantic_keyword_builder()
     elif app_view == "linking":
-        render_linking_lab()
+        if require_feature("linking", "Linking Lab"):
+            render_linking_lab()
     elif app_view == "positions":
-        render_positions_report()
+        if require_feature("positions", "Positions Report"):
+            render_positions_report()
     elif app_view == "relations":
-        render_semantic_relations()
+        if require_feature("relations", "Relaciones Semánticas"):
+            render_semantic_relations()
     elif app_view == "fanout":
-        render_fanout_report()
+        if require_feature("fanout", "Fan-Out Analyzer"):
+            render_fanout_report()
 
 
 

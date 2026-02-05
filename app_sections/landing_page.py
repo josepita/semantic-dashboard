@@ -321,6 +321,7 @@ def render_landing_view() -> None:
     st.caption(
         "Escoge si quieres cargar un dataset, usar herramientas rápidas, el builder semántico o el nuevo laboratorio de enlazado."
     )
+    # Features: trial = gratis, basic = licencia básica, pro = licencia pro
     cards = [
         {
             "icon": "📂",
@@ -330,6 +331,7 @@ def render_landing_view() -> None:
             "view": "csv",
             "style": "primary",
             "key": "cta_csv",
+            "plan": "trial",  # Disponible en trial (limitado a 100 filas)
         },
         {
             "icon": "🧰",
@@ -339,6 +341,7 @@ def render_landing_view() -> None:
             "view": "tools",
             "style": "secondary",
             "key": "cta_tools",
+            "plan": "trial",  # Disponible en trial
         },
         {
             "icon": "🧠",
@@ -348,6 +351,7 @@ def render_landing_view() -> None:
             "view": "keywords",
             "style": "secondary",
             "key": "cta_keywords",
+            "plan": "basic",  # Requiere licencia básica
         },
         {
             "icon": "🔗",
@@ -357,6 +361,7 @@ def render_landing_view() -> None:
             "view": "linking",
             "style": "secondary",
             "key": "cta_linking",
+            "plan": "basic",  # Requiere licencia básica
         },
         {
             "icon": "📊",
@@ -366,6 +371,7 @@ def render_landing_view() -> None:
             "view": "positions",
             "style": "secondary",
             "key": "cta_positions",
+            "plan": "basic",  # Requiere licencia básica
         },
         {
             "icon": "🔍",
@@ -375,6 +381,7 @@ def render_landing_view() -> None:
             "view": "relations",
             "style": "primary",
             "key": "cta_relations",
+            "plan": "basic",  # Requiere licencia básica
         },
         {
             "icon": "🌐",
@@ -384,8 +391,16 @@ def render_landing_view() -> None:
             "view": "fanout",
             "style": "secondary",
             "key": "cta_fanout",
+            "plan": "pro",  # Requiere licencia PRO
         },
     ]
+
+    # Badge HTML según plan
+    plan_badges = {
+        "trial": '<span style="background:#4CAF50;color:white;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:8px;">GRATIS</span>',
+        "basic": '<span style="background:#2196F3;color:white;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:8px;">BÁSICO</span>',
+        "pro": '<span style="background:#9C27B0;color:white;padding:2px 8px;border-radius:4px;font-size:11px;margin-left:8px;">PRO</span>',
+    }
 
     row_cols = None
     for idx, card in enumerate(cards):
@@ -394,11 +409,14 @@ def render_landing_view() -> None:
         col = row_cols[idx % 2]
         with col:
             card_class = "primary" if card["style"] == "primary" else "secondary"
+            plan = card.get("plan", "trial")
+            badge = plan_badges.get(plan, "")
+
             st.markdown(
                 f"""
                 <div class="action-card {card_class}">
                     <div class="icon">{card['icon']}</div>
-                    <h4>{card['title']}</h4>
+                    <h4>{card['title']}{badge}</h4>
                     <p>{card['body']}</p>
                 </div>
                 """,

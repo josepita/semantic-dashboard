@@ -850,6 +850,158 @@ def _suggest_internal_links(
     return pd.DataFrame(links)
 
 
+def _build_alternative_titles_prompt(titulo: str, kw_principal: str, kw_secundarias: str) -> str:
+    """Build prompt for generating alternative titles."""
+    return f"""Eres un experto en SEO y copywriting en español.
+
+Artículo planificado:
+- Título actual: {titulo}
+- Keyword principal: {kw_principal}
+- Keywords secundarias: {kw_secundarias}
+
+Genera 5 títulos alternativos optimizados para SEO y CTR.
+
+Reglas:
+1. Cada título debe incluir la keyword principal de forma natural.
+2. Varía el enfoque: informativo, lista, pregunta, cómo hacer, beneficios.
+3. Máximo 60-65 caracteres por título.
+4. Deben ser atractivos para el usuario y optimizados para buscadores.
+5. No repitas el mismo patrón en todos los títulos.
+
+Devuelve SOLO JSON válido:
+{{
+  "titulos_alternativos": ["título 1", "título 2", "título 3", "título 4", "título 5"]
+}}"""
+
+
+def _build_search_queries_prompt(titulo: str, kw_principal: str, kw_secundarias: str) -> str:
+    """Build prompt for generating related search queries."""
+    return f"""Eres un experto en SEO y análisis de intención de búsqueda en español.
+
+Artículo planificado:
+- Título: {titulo}
+- Keyword principal: {kw_principal}
+- Keywords secundarias: {kw_secundarias}
+
+Genera las búsquedas relacionadas que los usuarios podrían hacer en Google sobre este tema.
+
+Incluye:
+1. 3 queries informacionales (qué es, cómo funciona, guías)
+2. 3 queries transaccionales (comprar, precio, mejor)
+3. 2 queries comparativas (vs, diferencias, alternativas)
+4. 2 queries long-tail específicas
+
+Devuelve SOLO JSON válido:
+{{
+  "queries_informacionales": ["query 1", "query 2", "query 3"],
+  "queries_transaccionales": ["query 1", "query 2", "query 3"],
+  "queries_comparativas": ["query 1", "query 2"],
+  "queries_longtail": ["query 1", "query 2"]
+}}"""
+
+
+def _generate_alternative_titles(titulo: str, kw_principal: str, kw_secundarias: str) -> Tuple[List[str], Optional[str]]:
+    """Generate alternative titles using LLM."""
+    prompt = _build_alternative_titles_prompt(titulo, kw_principal, kw_secundarias)
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            raw = _call_llm(prompt)
+            if not raw.strip():
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(1)
+                    continue
+                return [], "Respuesta vacía del modelo"
+
+            parsed = _parse_gemini_json(raw)
+            titles = parsed.get("titulos_alternativos", [])
+            return titles, None
+
+        except json.JSONDecodeError as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(1)
+                continue
+            return [], f"JSON inválido: {e}"
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(1)
+                continue
+            return [], f"Error API: {e}"
+
+    return [], "Error desconocido"
+
+
+def _generate_search_queries(titulo: str, kw_principal: str, kw_secundarias: str) -> Tuple[dict, Optional[str]]:
+    """Generate search queries using LLM."""
+    prompt = _build_search_queries_prompt(titulo, kw_principal, kw_secundarias)
+
+    for attempt in range(MAX_RETRIES):
+        try:
+            raw = _call_llm(prompt)
+            if not raw.strip():
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(1)
+                    continue
+                return {}, "Respuesta vacía del modelo"
+
+            parsed = _parse_gemini_json(raw)
+            return parsed, None
+
+        except json.JSONDecodeError as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(1)
+                continue
+            return {}, f"JSON inválido: {e}"
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(1)
+                continue
+            return {}, f"Error API: {e}"
+
+    return {}, "Error desconocido"
+
+
+def _batch_generate_extras(
+    df: pd.DataFrame,
+    generate_titles: bool = True,
+    generate_queries: bool = True
+) -> Tuple[List[List[str]], List[dict]]:
+    """Generate alternative titles and search queries for all rows."""
+    n = len(df)
+    alt_titles_list: List[List[str]] = [[] for _ in range(n)]
+    queries_list: List[dict] = [{} for _ in range(n)]
+
+    total_ops = n * (int(generate_titles) + int(generate_queries))
+    if total_ops == 0:
+        return alt_titles_list, queries_list
+
+    progress = st.progress(0, text="Generando contenido adicional...")
+    step = 0
+
+    for i in range(n):
+        row = df.iloc[i]
+        titulo = str(row["titulo"])
+        kw = str(row["kw"])
+        kw_sec = str(row["kw_secundarias"])
+
+        if generate_titles:
+            step += 1
+            progress.progress(step / total_ops, text=f"Títulos alternativos {i+1}/{n}: {titulo[:40]}...")
+            titles, _ = _generate_alternative_titles(titulo, kw, kw_sec)
+            alt_titles_list[i] = titles
+            time.sleep(0.3)  # Rate limiting
+
+        if generate_queries:
+            step += 1
+            progress.progress(step / total_ops, text=f"Querys de búsqueda {i+1}/{n}: {titulo[:40]}...")
+            queries, _ = _generate_search_queries(titulo, kw, kw_sec)
+            queries_list[i] = queries
+            time.sleep(0.3)  # Rate limiting
+
+    progress.empty()
+    return alt_titles_list, queries_list
+
+
 def _build_anchor_prompt(source_title: str, target_title: str, target_kw: str) -> str:
     """Build Gemini prompt for contextual anchor text."""
     return f"""Genera texto ancla para un enlace interno en español.
@@ -1096,8 +1248,11 @@ def _export_to_excel(
     links: pd.DataFrame,
     cannibalization: pd.DataFrame,
     ngram_df: pd.DataFrame,
+    alt_titles: Optional[List[List[str]]] = None,
+    search_queries: Optional[List[dict]] = None,
+    manual_queries: Optional[Dict[int, str]] = None,
 ) -> bytes:
-    """Multi-sheet Excel export."""
+    """Multi-sheet Excel export with optional extra columns."""
     buffer = io.BytesIO()
 
     # Build main sheet
@@ -1120,6 +1275,33 @@ def _export_to_excel(
                     row_data[f"H2_{j+1}_H3_{k+1}"] = h3
         else:
             row_data["H1"] = "ERROR"
+
+        # Add alternative titles
+        if alt_titles and i < len(alt_titles) and alt_titles[i]:
+            row_data["Títulos Alternativos"] = " | ".join(alt_titles[i])
+            # Also add individual columns for each alternative
+            for t_idx, alt_title in enumerate(alt_titles[i][:5]):
+                row_data[f"Título Alt {t_idx+1}"] = alt_title
+
+        # Add search queries (from IA or manual)
+        queries_text = ""
+        if search_queries and i < len(search_queries) and search_queries[i]:
+            q = search_queries[i]
+            all_queries = []
+            all_queries.extend(q.get("queries_informacionales", []))
+            all_queries.extend(q.get("queries_transaccionales", []))
+            all_queries.extend(q.get("queries_comparativas", []))
+            all_queries.extend(q.get("queries_longtail", []))
+            queries_text = " | ".join(all_queries)
+            # Separate columns by type
+            row_data["Querys Informacionales"] = ", ".join(q.get("queries_informacionales", []))
+            row_data["Querys Transaccionales"] = ", ".join(q.get("queries_transaccionales", []))
+            row_data["Querys Comparativas"] = ", ".join(q.get("queries_comparativas", []))
+            row_data["Querys Long-tail"] = ", ".join(q.get("queries_longtail", []))
+
+        # Add manual queries if provided
+        if manual_queries and i in manual_queries:
+            row_data["Querys Manuales"] = manual_queries[i]
 
         if not scores.empty and i < len(scores):
             score_row = scores[scores["idx"] == i]
@@ -1251,8 +1433,9 @@ def render_content_plan() -> None:
         emb_model_name = AVAILABLE_MODELS[emb_model_key]
 
     # Tabs
-    tab_gen, tab_analysis, tab_links, tab_export = st.tabs([
+    tab_gen, tab_extras, tab_analysis, tab_links, tab_export = st.tabs([
         "🔨 Generación",
+        "✨ Extras (Títulos/Querys)",
         "🔍 Análisis",
         "🔗 Enlazado",
         "📥 Exportación",
@@ -1551,7 +1734,157 @@ def render_content_plan() -> None:
                                 st.markdown(f"- {h3}")
                         st.caption(f"Meta Title: {h.get('meta_title', '')} | Meta Desc: {h.get('meta_description', '')}")
 
-    # ── Tab 2: Analysis ──
+    # ── Tab 2: Extras (Títulos Alternativos / Querys) ──
+    with tab_extras:
+        st.header("2. Títulos Alternativos y Querys de Búsqueda")
+        st.markdown(
+            "Genera títulos alternativos con IA y añade querys de búsqueda relacionadas "
+            "(puedes generarlas con IA o introducirlas manualmente desde herramientas como Fancy Out)."
+        )
+
+        df = st.session_state.get(f"{SS}uploaded_df")
+        headings = st.session_state.get(f"{SS}generated_headings")
+
+        if df is None:
+            st.info("⬅️ Primero carga un archivo en la pestaña Generación.")
+        else:
+            # ── Títulos Alternativos ──
+            st.subheader("📝 Títulos Alternativos")
+            st.caption("Genera 5 variantes de título para cada artículo usando IA.")
+
+            alt_titles = st.session_state.get(f"{SS}alternative_titles", [])
+            has_alt_titles = bool(alt_titles and any(alt_titles))
+
+            col1, col2 = st.columns([2, 1])
+            with col1:
+                if not _is_llm_configured():
+                    st.warning("⚠️ Configura la API key del proveedor de IA en la barra lateral.")
+                else:
+                    if st.button("🎯 Generar títulos alternativos", key=f"{SS}gen_alt_titles", type="primary"):
+                        with st.spinner("Generando títulos alternativos..."):
+                            alt_titles, _ = _batch_generate_extras(df, generate_titles=True, generate_queries=False)
+                            st.session_state[f"{SS}alternative_titles"] = alt_titles
+                        st.success(f"✅ Títulos generados para {len([t for t in alt_titles if t])} artículos.")
+                        st.rerun()
+
+            with col2:
+                if has_alt_titles:
+                    st.metric("Artículos con títulos", len([t for t in alt_titles if t]))
+
+            # Show generated alternative titles
+            if has_alt_titles:
+                with st.expander("📋 Ver títulos alternativos generados", expanded=True):
+                    for i, titles in enumerate(alt_titles):
+                        if titles and i < len(df):
+                            st.markdown(f"**{df.iloc[i]['titulo']}**")
+                            for j, t in enumerate(titles[:5], 1):
+                                st.markdown(f"  {j}. {t}")
+                            st.markdown("---")
+
+            # ── Querys de Búsqueda ──
+            st.markdown("---")
+            st.subheader("🔍 Querys de Búsqueda")
+
+            query_mode = st.radio(
+                "Modo de entrada de querys:",
+                options=["manual", "ia", "ambos"],
+                format_func=lambda x: {
+                    "manual": "📋 Manual (pegar desde Fancy Out u otras herramientas)",
+                    "ia": "🤖 Generar con IA",
+                    "ambos": "📋+🤖 Combinar manual + IA"
+                }[x],
+                key=f"{SS}query_mode",
+                horizontal=True,
+            )
+
+            # Manual queries input
+            if query_mode in ["manual", "ambos"]:
+                st.markdown("##### Querys manuales")
+                st.caption(
+                    "Pega las querys extraídas de Fancy Out u otras herramientas. "
+                    "Puedes usar el selector para elegir el artículo."
+                )
+
+                # Initialize manual queries dict
+                if f"{SS}manual_queries" not in st.session_state:
+                    st.session_state[f"{SS}manual_queries"] = {}
+
+                manual_queries = st.session_state[f"{SS}manual_queries"]
+
+                # Row selector
+                selected_row = st.selectbox(
+                    "Selecciona artículo:",
+                    options=range(len(df)),
+                    format_func=lambda x: f"{x+1}. {df.iloc[x]['titulo'][:60]}...",
+                    key=f"{SS}manual_query_row",
+                )
+
+                # Text area for manual input
+                current_manual = manual_queries.get(selected_row, "")
+                new_manual = st.text_area(
+                    f"Querys para: {df.iloc[selected_row]['titulo'][:50]}...",
+                    value=current_manual,
+                    height=150,
+                    placeholder="Pega aquí las querys, una por línea o separadas por comas...",
+                    key=f"{SS}manual_query_input_{selected_row}",
+                )
+
+                if new_manual != current_manual:
+                    st.session_state[f"{SS}manual_queries"][selected_row] = new_manual
+
+                # Show count of articles with manual queries
+                filled_count = len([q for q in manual_queries.values() if q.strip()])
+                if filled_count > 0:
+                    st.success(f"✅ {filled_count}/{len(df)} artículos con querys manuales.")
+
+            # IA-generated queries
+            if query_mode in ["ia", "ambos"]:
+                st.markdown("##### Querys generadas con IA")
+
+                search_queries = st.session_state.get(f"{SS}search_queries", [])
+                has_search_queries = bool(search_queries and any(search_queries))
+
+                if not _is_llm_configured():
+                    st.warning("⚠️ Configura la API key del proveedor de IA en la barra lateral.")
+                else:
+                    if st.button("🔍 Generar querys con IA", key=f"{SS}gen_search_queries", type="primary"):
+                        with st.spinner("Generando querys de búsqueda..."):
+                            _, search_queries = _batch_generate_extras(df, generate_titles=False, generate_queries=True)
+                            st.session_state[f"{SS}search_queries"] = search_queries
+                        st.success(f"✅ Querys generadas para {len([q for q in search_queries if q])} artículos.")
+                        st.rerun()
+
+                # Show generated queries
+                if has_search_queries:
+                    with st.expander("📋 Ver querys generadas", expanded=True):
+                        for i, queries in enumerate(search_queries):
+                            if queries and i < len(df):
+                                st.markdown(f"**{df.iloc[i]['titulo']}**")
+                                if queries.get("queries_informacionales"):
+                                    st.markdown(f"  *Informacionales:* {', '.join(queries['queries_informacionales'])}")
+                                if queries.get("queries_transaccionales"):
+                                    st.markdown(f"  *Transaccionales:* {', '.join(queries['queries_transaccionales'])}")
+                                if queries.get("queries_comparativas"):
+                                    st.markdown(f"  *Comparativas:* {', '.join(queries['queries_comparativas'])}")
+                                if queries.get("queries_longtail"):
+                                    st.markdown(f"  *Long-tail:* {', '.join(queries['queries_longtail'])}")
+                                st.markdown("---")
+
+            # ── Generate both at once ──
+            st.markdown("---")
+            st.subheader("⚡ Generación rápida")
+            st.caption("Genera títulos alternativos y querys de IA en una sola operación.")
+
+            if _is_llm_configured():
+                if st.button("🚀 Generar todo (Títulos + Querys IA)", key=f"{SS}gen_all_extras"):
+                    with st.spinner("Generando títulos y querys..."):
+                        alt_titles, search_queries = _batch_generate_extras(df, generate_titles=True, generate_queries=True)
+                        st.session_state[f"{SS}alternative_titles"] = alt_titles
+                        st.session_state[f"{SS}search_queries"] = search_queries
+                    st.success("✅ Títulos y querys generados correctamente.")
+                    st.rerun()
+
+    # ── Tab 3: Analysis ──
     with tab_analysis:
         st.header("2. Análisis de calidad")
 
@@ -1754,10 +2087,34 @@ def render_content_plan() -> None:
             canib = st.session_state.get(f"{SS}cannibalization_pairs", pd.DataFrame())
             ngram = st.session_state.get(f"{SS}ngram_validation", pd.DataFrame())
 
+            # Get extras (alternative titles and search queries)
+            alt_titles = st.session_state.get(f"{SS}alternative_titles", [])
+            search_queries = st.session_state.get(f"{SS}search_queries", [])
+            manual_queries = st.session_state.get(f"{SS}manual_queries", {})
+
+            # Show what will be exported
+            extras_info = []
+            if alt_titles and any(alt_titles):
+                extras_info.append(f"✅ Títulos alternativos ({len([t for t in alt_titles if t])} artículos)")
+            if search_queries and any(search_queries):
+                extras_info.append(f"✅ Querys IA ({len([q for q in search_queries if q])} artículos)")
+            if manual_queries and any(manual_queries.values()):
+                extras_info.append(f"✅ Querys manuales ({len([q for q in manual_queries.values() if q.strip()])} artículos)")
+
+            if extras_info:
+                st.info("**Columnas extras incluidas en el Excel:**\n" + "\n".join(extras_info))
+            else:
+                st.caption("💡 Puedes añadir títulos alternativos y querys en la pestaña **✨ Extras**.")
+
             col_exp1, col_exp2 = st.columns(2)
 
             with col_exp1:
-                excel_bytes = _export_to_excel(df, headings, scores, links, canib, ngram)
+                excel_bytes = _export_to_excel(
+                    df, headings, scores, links, canib, ngram,
+                    alt_titles=alt_titles if alt_titles else None,
+                    search_queries=search_queries if search_queries else None,
+                    manual_queries=manual_queries if manual_queries else None,
+                )
                 st.download_button(
                     "📥 Descargar Excel completo",
                     data=excel_bytes,

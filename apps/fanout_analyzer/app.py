@@ -44,6 +44,24 @@ from modules.domain_coverage import (
     DEFAULT_THRESHOLDS,
     CLASSIFICATION_LABELS,
 )
+from modules.serp_extraction import (
+    batch_extract_serp,
+    serp_results_to_dataframe,
+    merge_serp_with_fanout,
+    get_serp_summary,
+)
+
+# License management - TEMPORAL: licencias desactivadas
+# TODO: Restaurar verificación de licencias cuando esté listo
+def check_license_or_block():
+    print(">>> LICENCIAS DESACTIVADAS - check_license_or_block")
+    return True
+def render_license_status_sidebar():
+    print(">>> LICENCIAS DESACTIVADAS - render_license_status_sidebar")
+    pass  # No mostrar nada
+def require_feature(f, n=""):
+    print(f">>> LICENCIAS DESACTIVADAS - require_feature({f})")
+    return True
 
 # Import con manejo de errores
 try:
@@ -85,6 +103,8 @@ st.set_page_config(
     layout="wide",
     page_icon="🔍",
 )
+# Marcar que page_config ya fue configurado (para license_ui)
+st.session_state["_page_config_set"] = True
 
 
 def apply_global_styles():
@@ -144,6 +164,10 @@ def render_project_selector():
 
 def main():
     """Main application entry point."""
+    # Verificar licencia - bloquea si no hay licencia válida o trial
+    if not check_license_or_block():
+        return  # No continuar si no hay licencia
+
     apply_global_styles()
 
     st.title("🔍 Fan-Out Query Analyzer")
@@ -156,6 +180,9 @@ def main():
     pm = get_project_manager()
     render_export_import_sidebar(pm)
 
+    # License status
+    render_license_status_sidebar()
+
     with st.sidebar:
         st.markdown("---")
         st.header("🧭 Navegación")
@@ -167,6 +194,7 @@ def main():
                 "🔑 Configuración API",
                 "🌐 Extracción Gemini",
                 "💬 Importar ChatGPT",
+                "🔎 Extracción SERP",
                 "📊 Análisis Cobertura",
             ],
             key="fanout_tool_selector"
@@ -177,16 +205,27 @@ def main():
         st.caption("Fan-Out Query Analyzer v1.0.0")
         st.caption("Parte de Embedding Insights Suite")
 
+    # Fan-Out es una feature PRO - bloquear funcionalidades principales
     if tool == "🏠 Inicio":
         render_home()
     elif tool == "🔑 Configuración API":
         render_api_settings()
     elif tool == "🌐 Extracción Gemini":
-        render_gemini_extraction()
+        # Requiere licencia PRO (feature: fanout)
+        if require_feature("fanout", "Extracción Fan-Out Gemini"):
+            render_gemini_extraction()
     elif tool == "💬 Importar ChatGPT":
-        render_chatgpt_import()
+        # Requiere licencia PRO (feature: fanout)
+        if require_feature("fanout", "Importar Fan-Out ChatGPT"):
+            render_chatgpt_import()
+    elif tool == "🔎 Extracción SERP":
+        # Requiere licencia PRO (feature: fanout)
+        if require_feature("fanout", "Extracción SERP"):
+            render_serp_extraction()
     elif tool == "📊 Análisis Cobertura":
-        render_coverage_analysis()
+        # Requiere licencia PRO (feature: fanout)
+        if require_feature("fanout", "Análisis de Cobertura"):
+            render_coverage_analysis()
 
 
 def render_api_settings():
@@ -575,6 +614,402 @@ def render_chatgpt_import():
 
         if st.button("🗑️ Limpiar todas las queries", key="fanout_clear_all"):
             st.session_state["fanout_queries_df"] = None
+            st.rerun()
+
+
+def render_serp_extraction():
+    """Renderiza la sección de extracción de títulos SERP."""
+    st.header("🔎 Extracción de Títulos SERP")
+    st.markdown(
+        "Extrae los títulos de los resultados de búsqueda de Google (SERP) "
+        "para cada fan-out query. Útil para analizar qué contenido posiciona "
+        "actualmente para cada consulta."
+    )
+
+    queries_df = st.session_state.get("fanout_queries_df")
+
+    if queries_df is None or queries_df.empty:
+        st.warning("⚠️ Primero extrae o importa fan-out queries en las secciones anteriores")
+        return
+
+    # Filtrar queries válidas (sin errores)
+    valid_queries = queries_df[queries_df["error"] == ""] if "error" in queries_df.columns else queries_df
+    unique_queries = valid_queries["web_search_query"].unique().tolist()
+
+    st.info(f"📝 {len(unique_queries)} queries únicas disponibles para extraer SERP")
+
+    # ══════════════════════════════════════════════════════════
+    # MÉTODO DE EXTRACCIÓN
+    # ══════════════════════════════════════════════════════════
+    st.subheader("🔧 Método de Extracción")
+
+    method = st.radio(
+        "Selecciona el método:",
+        options=["scraping", "api"],
+        format_func=lambda x: {
+            "scraping": "🕷️ Scraping directo (gratis, menos fiable)",
+            "api": "🔑 Google Custom Search API (100 queries/día gratis, más fiable)",
+        }[x],
+        horizontal=True,
+        key="serp_method",
+    )
+
+    # Configuración de API si se selecciona
+    api_key = None
+    cx = None
+
+    if method == "api":
+        with st.expander("🔑 Configurar Google Custom Search API", expanded=True):
+            st.markdown("""
+            **Para usar la API necesitas:**
+            1. Crear una API Key en [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
+            2. Habilitar la API "Custom Search API"
+            3. Crear un buscador en [Programmable Search Engine](https://programmablesearchengine.google.com/)
+            4. Obtener el CX (Search Engine ID) del buscador
+
+            **Límites:** 100 queries/día gratis, después $5 por 1000 queries.
+            """)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                api_key = st.text_input(
+                    "API Key",
+                    type="password",
+                    key="serp_api_key",
+                    help="Tu API Key de Google Cloud",
+                )
+            with col2:
+                cx = st.text_input(
+                    "Search Engine ID (CX)",
+                    key="serp_cx",
+                    help="El ID de tu Custom Search Engine (formato: xxx:yyy)",
+                )
+
+            if not api_key or not cx:
+                st.warning("⚠️ Introduce API Key y CX para usar este método")
+
+    # ══════════════════════════════════════════════════════════
+    # CONFIGURACIÓN GENERAL
+    # ══════════════════════════════════════════════════════════
+    st.subheader("⚙️ Configuración")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        num_results = st.slider(
+            "Resultados por query",
+            min_value=5,
+            max_value=20,
+            value=10,
+            help="Número de títulos a extraer por cada query",
+            key="serp_num_results",
+        )
+
+    with col2:
+        lang = st.selectbox(
+            "Idioma",
+            options=["es", "en", "fr", "de", "it", "pt"],
+            index=0,
+            key="serp_lang",
+        )
+
+    with col3:
+        country = st.selectbox(
+            "País",
+            options=["es", "us", "mx", "ar", "co", "uk", "fr", "de"],
+            index=0,
+            key="serp_country",
+        )
+
+    # Delays solo para scraping
+    delay_min = 3.0
+    delay_max = 6.0
+
+    if method == "scraping":
+        col1, col2 = st.columns(2)
+
+        with col1:
+            delay_min = st.slider(
+                "Delay mínimo (segundos)",
+                min_value=2.0,
+                max_value=10.0,
+                value=3.0,
+                step=0.5,
+                help="Tiempo mínimo de espera entre peticiones",
+                key="serp_delay_min",
+            )
+
+        with col2:
+            delay_max = st.slider(
+                "Delay máximo (segundos)",
+                min_value=3.0,
+                max_value=15.0,
+                value=6.0,
+                step=0.5,
+                help="Tiempo máximo de espera entre peticiones",
+                key="serp_delay_max",
+            )
+
+        st.warning(
+            "⚠️ **Scraping:** Google puede bloquear peticiones frecuentes. "
+            "Usa delays de 3-6 segundos mínimo. Si hay errores, espera unos minutos."
+        )
+    else:
+        st.success(
+            "✅ **API:** Método más fiable. 100 queries/día gratis. "
+            "No necesita delays largos."
+        )
+
+    # Selección de queries a procesar
+    st.markdown("---")
+    st.subheader("📝 Queries a procesar")
+
+    process_mode = st.radio(
+        "¿Qué queries procesar?",
+        options=["todas", "seleccion", "nuevas"],
+        format_func=lambda x: {
+            "todas": f"Todas las queries ({len(unique_queries)})",
+            "seleccion": "Selección manual",
+            "nuevas": "Solo queries sin SERP extraída",
+        }[x],
+        horizontal=True,
+        key="serp_process_mode",
+    )
+
+    queries_to_process = unique_queries
+
+    if process_mode == "seleccion":
+        queries_to_process = st.multiselect(
+            "Selecciona queries:",
+            options=unique_queries,
+            default=unique_queries[:min(10, len(unique_queries))],
+            key="serp_selected_queries",
+        )
+    elif process_mode == "nuevas":
+        # Filtrar queries que ya tienen SERP
+        existing_serp = st.session_state.get("fanout_serp_df")
+        if existing_serp is not None and not existing_serp.empty:
+            processed_queries = set(existing_serp["query"].unique())
+            queries_to_process = [q for q in unique_queries if q not in processed_queries]
+            st.info(f"📝 {len(queries_to_process)} queries nuevas (sin SERP extraída)")
+        else:
+            st.info("No hay extracciones previas, se procesarán todas las queries")
+
+    st.metric("Queries a procesar", len(queries_to_process))
+
+    # Estimación de tiempo
+    if queries_to_process:
+        avg_delay = (delay_min + delay_max) / 2
+        est_time = len(queries_to_process) * avg_delay
+        est_minutes = int(est_time // 60)
+        est_seconds = int(est_time % 60)
+        st.caption(f"⏱️ Tiempo estimado: ~{est_minutes}m {est_seconds}s")
+
+    # Botón de extracción
+    st.markdown("---")
+
+    # Validar que si se usa API, hay credenciales
+    can_extract = len(queries_to_process) > 0
+    if method == "api" and (not api_key or not cx):
+        can_extract = False
+
+    if st.button(
+        "🚀 Extraer Títulos SERP",
+        disabled=not can_extract,
+        type="primary",
+        key="serp_extract_btn",
+    ):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        results_container = st.empty()
+
+        def progress_callback(current, total, query):
+            progress_bar.progress((current + 1) / total)
+            status_text.text(f"Procesando {current + 1}/{total}: {query[:60]}...")
+
+        with st.spinner("Extrayendo títulos SERP..."):
+            results = batch_extract_serp(
+                queries=queries_to_process,
+                num_results=num_results,
+                lang=lang,
+                country=country,
+                delay_min=delay_min,
+                delay_max=delay_max,
+                method=method,
+                api_key=api_key,
+                cx=cx,
+                progress_callback=progress_callback,
+            )
+
+        progress_bar.empty()
+        status_text.empty()
+
+        # Convertir a DataFrame
+        serp_df = serp_results_to_dataframe(results)
+
+        # Combinar con resultados previos si existen
+        existing_serp = st.session_state.get("fanout_serp_df")
+        if existing_serp is not None and not existing_serp.empty:
+            serp_df = pd.concat([existing_serp, serp_df], ignore_index=True)
+            # Eliminar duplicados (misma query + posición)
+            serp_df = serp_df.drop_duplicates(subset=["query", "position"], keep="last")
+
+        st.session_state["fanout_serp_df"] = serp_df
+
+        # Mostrar resumen
+        summary = get_serp_summary(serp_df)
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Queries procesadas", summary["total_queries"])
+        col2.metric("Exitosas", summary["successful_queries"])
+        col3.metric("Con errores", summary["failed_queries"])
+        col4.metric("Total resultados", summary["total_results"])
+
+        st.success("✅ Extracción SERP completada")
+
+        # ── Mostrar resultados inmediatamente ──
+        st.markdown("### 📋 Resultados Extraídos")
+
+        # Tabla de resultados (solo exitosos)
+        results_df = serp_df[serp_df["error"] == ""]
+        st.dataframe(
+            results_df[["query", "position", "title", "url"]],
+            use_container_width=True,
+            hide_index=True,
+            height=400,
+        )
+
+        # Descargas inmediatas
+        st.markdown("##### 📥 Descargar ahora")
+        dl_col1, dl_col2, dl_col3 = st.columns(3)
+
+        with dl_col1:
+            csv_serp = serp_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 CSV (Solo SERP)",
+                csv_serp,
+                "serp_titles.csv",
+                "text/csv",
+                key="serp_download_immediate_csv",
+            )
+
+        with dl_col2:
+            if queries_df is not None:
+                merged_df = merge_serp_with_fanout(queries_df, serp_df)
+                csv_merged = merged_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "📥 CSV (Fan-Out + SERP)",
+                    csv_merged,
+                    "fanout_with_serp.csv",
+                    "text/csv",
+                    key="serp_download_immediate_merged",
+                )
+
+        with dl_col3:
+            from io import BytesIO
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                results_df.to_excel(writer, sheet_name="SERP Títulos", index=False)
+                if queries_df is not None:
+                    merged_df = merge_serp_with_fanout(queries_df, serp_df)
+                    merged_df.to_excel(writer, sheet_name="Fan-Out + SERP", index=False)
+            st.download_button(
+                "📥 Excel Completo",
+                buffer.getvalue(),
+                "serp_extraction.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="serp_download_immediate_excel",
+            )
+
+    # Mostrar resultados existentes
+    serp_df = st.session_state.get("fanout_serp_df")
+
+    if serp_df is not None and not serp_df.empty:
+        st.markdown("---")
+        st.subheader("📋 Resultados SERP Extraídos")
+
+        # Resumen
+        summary = get_serp_summary(serp_df)
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total queries", summary["total_queries"])
+        col2.metric("Exitosas", summary["successful_queries"])
+        col3.metric("Resultados totales", summary["total_results"])
+        col4.metric("Promedio/query", summary["avg_results_per_query"])
+
+        # Filtrar por query
+        st.markdown("##### Filtrar resultados")
+        filter_query = st.selectbox(
+            "Filtrar por query:",
+            options=["(Todas)"] + sorted(serp_df["query"].unique().tolist()),
+            key="serp_filter_query",
+        )
+
+        display_df = serp_df if filter_query == "(Todas)" else serp_df[serp_df["query"] == filter_query]
+        display_df = display_df[display_df["error"] == ""]
+
+        st.dataframe(
+            display_df[["query", "position", "title", "url"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Errores
+        errors_df = serp_df[serp_df["error"] != ""]
+        if not errors_df.empty:
+            with st.expander(f"⚠️ {len(errors_df)} errores"):
+                st.dataframe(errors_df[["query", "error"]], use_container_width=True, hide_index=True)
+
+        # Exportación
+        st.markdown("---")
+        st.subheader("📥 Exportar")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            # CSV de SERP
+            csv_serp = serp_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Descargar SERP (CSV)",
+                csv_serp,
+                "serp_titles.csv",
+                "text/csv",
+                key="serp_download_csv",
+            )
+
+        with col2:
+            # Merge con fan-out queries
+            if queries_df is not None:
+                merged_df = merge_serp_with_fanout(queries_df, serp_df)
+                csv_merged = merged_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "📥 Fan-Out + SERP (CSV)",
+                    csv_merged,
+                    "fanout_with_serp.csv",
+                    "text/csv",
+                    key="serp_download_merged",
+                )
+
+        with col3:
+            # Excel completo
+            from io import BytesIO
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                serp_df[serp_df["error"] == ""].to_excel(writer, sheet_name="SERP Títulos", index=False)
+                if queries_df is not None:
+                    merged_df = merge_serp_with_fanout(queries_df, serp_df)
+                    merged_df.to_excel(writer, sheet_name="Fan-Out + SERP", index=False)
+                errors_df.to_excel(writer, sheet_name="Errores", index=False)
+
+            st.download_button(
+                "📥 Excel Completo",
+                buffer.getvalue(),
+                "serp_extraction_report.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="serp_download_excel",
+            )
+
+        # Limpiar resultados
+        if st.button("🗑️ Limpiar resultados SERP", key="serp_clear"):
+            st.session_state["fanout_serp_df"] = None
             st.rerun()
 
 

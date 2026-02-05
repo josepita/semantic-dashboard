@@ -40,6 +40,12 @@ from modules.keyword_builder import render_semantic_keyword_builder
 from modules.semantic_relations import render_semantic_relations
 from modules.content_plan import render_content_plan
 
+# License management - TEMPORAL: licencias desactivadas
+# TODO: Restaurar verificación de licencias cuando esté listo
+def check_license_or_block(): return True
+def render_license_status_sidebar(): pass
+def require_feature(f, n=""): return True
+
 # Import con manejo de errores
 try:
     from project_manager import get_project_manager
@@ -86,6 +92,8 @@ st.set_page_config(
     layout="wide",
     page_icon="🎯",
 )
+# Marcar que page_config ya fue configurado (para license_ui)
+st.session_state["_page_config_set"] = True
 
 
 def apply_global_styles():
@@ -226,6 +234,10 @@ def render_project_selector():
 
 def main():
     """Main application entry point."""
+    # Verificar licencia - bloquea si no hay licencia válida o trial
+    if not check_license_or_block():
+        return  # No continuar si no hay licencia
+
     apply_global_styles()
 
     # Título y descripción
@@ -241,6 +253,9 @@ def main():
     # Sidebar - Export/Import (Fase 4)
     pm = get_project_manager()
     render_export_import_sidebar(pm)
+
+    # License status
+    render_license_status_sidebar()
 
     # Sidebar - Navegación
     with st.sidebar:
@@ -266,18 +281,27 @@ def main():
         st.caption("Parte de Embedding Insights Suite")
 
     # Renderizar herramienta seleccionada
+    # Features disponibles en trial: hub, semantic_tools
+    # Features PRO: keywords, relations, content_plan
     if tool == "🏠 Inicio":
         render_home()
     elif tool == "🔑 Configuración API":
         render_api_settings()
     elif tool == "🧰 Herramientas Semánticas":
+        # Disponible en trial
         render_semantic_toolkit_section()
     elif tool == "🧠 Semantic Keyword Builder":
-        render_semantic_keyword_builder()
+        # Requiere licencia (feature: keywords)
+        if require_feature("keywords", "Semantic Keyword Builder"):
+            render_semantic_keyword_builder()
     elif tool == "🔗 Relaciones Semánticas":
-        render_semantic_relations()
+        # Requiere licencia (feature: relations)
+        if require_feature("relations", "Relaciones Semánticas"):
+            render_semantic_relations()
     elif tool == "📋 Content Plan Generator":
-        render_content_plan()
+        # Requiere licencia (feature: content_plan)
+        if require_feature("content_plan", "Content Plan Generator"):
+            render_content_plan()
 
 
 def render_api_settings():

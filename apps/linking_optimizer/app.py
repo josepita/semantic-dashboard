@@ -40,6 +40,12 @@ if str(modules_path) not in sys.path:
 from modules.csv_workflow import render_csv_workflow
 from app_sections.linking_lab import render_linking_lab
 
+# License management - TEMPORAL: licencias desactivadas
+# TODO: Restaurar verificación de licencias cuando esté listo
+def check_license_or_block(): return True
+def render_license_status_sidebar(): pass
+def require_feature(f, n=""): return True
+
 # Import con manejo de errores
 try:
     from project_manager import get_project_manager
@@ -86,6 +92,8 @@ st.set_page_config(
     layout="wide",
     page_icon="🔗",
 )
+# Marcar que page_config ya fue configurado (para license_ui)
+st.session_state["_page_config_set"] = True
 
 
 def apply_global_styles():
@@ -223,6 +231,10 @@ def render_project_selector():
 
 def main():
     """Main application entry point."""
+    # Verificar licencia - bloquea si no hay licencia válida o trial
+    if not check_license_or_block():
+        return  # No continuar si no hay licencia
+
     apply_global_styles()
 
     # Título y descripción
@@ -238,6 +250,9 @@ def main():
     # Sidebar - Export/Import (Fase 4)
     pm = get_project_manager()
     render_export_import_sidebar(pm)
+
+    # License status
+    render_license_status_sidebar()
 
     # Sidebar - Navegación
     with st.sidebar:
@@ -260,12 +275,16 @@ def main():
         st.caption("Parte de Embedding Insights Suite")
 
     # Renderizar herramienta seleccionada
+    # Linking Lab es PRO, CSV workflow tiene límite de 100 filas en trial
     if tool == "🏠 Inicio":
         render_home()
     elif tool == "📂 Análisis de Embeddings":
+        # CSV disponible en trial pero limitado a 100 filas
         render_csv_workflow()
     elif tool == "🔗 Laboratorio de Enlazado":
-        render_linking_lab()
+        # Requiere licencia (feature: linking)
+        if require_feature("linking", "Laboratorio de Enlazado"):
+            render_linking_lab()
 
 
 def render_home():

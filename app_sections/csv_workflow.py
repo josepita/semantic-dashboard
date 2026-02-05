@@ -36,6 +36,7 @@ from app_sections.semantic_tools import (
     keyword_relevance,
     parse_line_input,
 )
+from shared.license_ui import get_csv_limit_message, is_licensed
 
 # Constants that need to be imported or defined
 ENTITY_PROFILE_PRESETS: Dict[str, List[str]] = {
@@ -486,6 +487,15 @@ def render_csv_workflow():
         except Exception as exc:
             st.error(f"No se pudo leer el archivo proporcionado: {exc}")
             return
+
+        # ── Verificar límite de filas en modo trial ──
+        original_row_count = len(site_df)
+        limit_msg = get_csv_limit_message(original_row_count)
+        if limit_msg:
+            st.warning(limit_msg)
+            site_df = site_df.head(100)
+            st.info(f"📊 Se procesarán las primeras 100 filas de {original_row_count} totales.")
+
         # ── Auto-detección de formato Screaming Frog ──
         if _detect_screaming_frog(site_df):
             st.info(
