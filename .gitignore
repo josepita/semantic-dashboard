@@ -125,6 +125,16 @@ ve
 # Claude Code session files
 .claude/
 
+# License server (contains credentials)
+license_server/
+license_server_php/
+
+# GSC OAuth credentials
+.gsc_credentials.json
+
+# SQLite databases
+*.db
+
 # Temporary directories
 _tmp_*/
 Nueva carpeta/

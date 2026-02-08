@@ -668,7 +668,7 @@ if __name__ == "__main__":
 
     # Test API keys
     print("\nTest: Guardar API key")
-    manager.save_api_key('openai', 'sk-test-123456')
+    manager.save_api_key('openai', 'YOUR_API_KEY_HERE')
 
     print("\nTest: Cargar API key")
     key = manager.load_api_key('openai')
