@@ -155,19 +155,10 @@ def render_project_selector():
                 project_config = pm.load_project(st.session_state.current_project)
                 st.session_state.project_config = project_config
 
-                # Auto-cargar credenciales OAuth (Fase 3)
+                # Auto-cargar credenciales OAuth (Fase 3) - Solo OAuth, NO API keys
                 oauth_manager = get_oauth_manager(project_config)
                 if oauth_manager:
                     st.session_state.oauth_manager = oauth_manager
-
-                    # Cargar API keys si existen
-                    gemini_key = oauth_manager.load_api_key('gemini', 'GEMINI_API_KEY')
-                    if gemini_key:
-                        st.session_state.gemini_api_key = gemini_key
-
-                    openai_key = oauth_manager.load_api_key('openai', 'OPENAI_API_KEY')
-                    if openai_key:
-                        st.session_state.openai_api_key = openai_key
 
                 # Mostrar info del proyecto
                 st.sidebar.success(f"✅ {project_config['domain']}")
@@ -190,12 +181,11 @@ def render_project_selector():
                         else:
                             st.info("ℹ️ GSC no configurado")
 
-                        # API Keys
-                        api_keys = auth_status.get('api_keys', [])
-                        if api_keys:
-                            st.success(f"✅ API Keys: {', '.join(api_keys)}")
+                        # API Keys - requiere introducirlas cada sesión
+                        if st.session_state.get("gemini_api_key"):
+                            st.success("✅ Gemini API key configurada (sesión actual)")
                         else:
-                            st.info("ℹ️ No hay API keys")
+                            st.info("ℹ️ Introduce tu API key en el panel lateral")
 
             except FileNotFoundError as e:
                 st.sidebar.error(f"📁 Proyecto no encontrado: {e}")
@@ -246,11 +236,9 @@ def main():
     import os
 
     if "gemini_api_key" not in st.session_state:
-        st.session_state["gemini_api_key"] = (
-            os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
-        )
+        st.session_state["gemini_api_key"] = ""
     if "gemini_model_name" not in st.session_state:
-        st.session_state["gemini_model_name"] = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
+        st.session_state["gemini_model_name"] = os.environ.get("GEMINI_MODEL") or "gemini-3-flash-preview"
 
     apply_global_styles()
 

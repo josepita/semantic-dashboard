@@ -12,34 +12,30 @@ from typing import Optional
 
 def get_gemini_api_key() -> str:
     """
-    Obtiene la API key de Gemini desde múltiples fuentes.
-    
+    Obtiene la API key de Gemini solo desde session_state.
+
+    La API key NO se persiste y debe introducirse en cada sesión.
+
     Busca en orden:
     1. st.session_state["gemini_api_key"]
     2. st.session_state["positions_gemini_key"]
-    3. Variable de entorno GEMINI_API_KEY
-    4. Variable de entorno GOOGLE_API_KEY
-    5. Variable de entorno GOOGLE_GENAI_KEY
-    
+
     Returns:
         API key de Gemini o string vacío si no se encuentra
     """
     candidates = [
         st.session_state.get("gemini_api_key"),
         st.session_state.get("positions_gemini_key"),
-        os.environ.get("GEMINI_API_KEY"),
-        os.environ.get("GOOGLE_API_KEY"),
-        os.environ.get("GOOGLE_GENAI_KEY"),
     ]
-    
+
     for candidate in candidates:
         if candidate:
             return candidate.strip()
-    
+
     return ""
 
 
-def get_gemini_model(default: str = "gemini-2.5-flash") -> str:
+def get_gemini_model(default: str = "gemini-3-flash-preview") -> str:
     """
     Obtiene el modelo de Gemini configurado.
     
@@ -161,13 +157,13 @@ def render_gemini_config_ui(key_prefix: str = "") -> tuple[str, str]:
         model_name = st.selectbox(
             "Modelo",
             options=[
+                "gemini-3-pro-preview",
+                "gemini-3-flash-preview",
+                "gemini-2.5-pro",
                 "gemini-2.5-flash",
                 "gemini-2.0-flash",
-                "gemini-2.0-flash-exp",
-                "gemini-1.5-pro",
-                "gemini-1.5-flash",
             ],
-            index=0 if current_model == "gemini-2.0-flash-exp" else 0,
+            index=1,  # gemini-3-flash-preview por defecto
             key=f"{key_prefix}gemini_model_select",
             help="Modelo de Gemini a utilizar"
         )

@@ -5,19 +5,14 @@ import streamlit as st
 
 
 def get_gemini_api_key_from_context() -> str:
-    candidates = [
-        st.session_state.get("gemini_api_key"),
-        os.environ.get("GEMINI_API_KEY"),
-        os.environ.get("GOOGLE_API_KEY"),
-        os.environ.get("GOOGLE_GENAI_KEY"),
-    ]
-    for candidate in candidates:
-        if candidate:
-            return candidate.strip()
+    """Obtiene la API key solo desde session_state (sin persistencia)."""
+    key = st.session_state.get("gemini_api_key")
+    if key:
+        return key.strip()
     return ""
 
 
-def get_gemini_model_from_context(default: str = "gemini-2.5-flash") -> str:
+def get_gemini_model_from_context(default: str = "gemini-3-flash-preview") -> str:
     candidate = (
         st.session_state.get("gemini_model_name")
         or os.environ.get("GEMINI_MODEL")
@@ -30,9 +25,8 @@ def render_api_settings_panel() -> None:
     with st.sidebar:
         st.markdown("### ⚙️ Configuración de Gemini")
         st.caption(
-            "Guarda tu API key una vez y la reutilizaremos en el laboratorio, el builder semántico "
-            "y el informe de posiciones. También puedes definir `GOOGLE_API_KEY` o `GEMINI_API_KEY` "
-            "como variable de entorno o en `.streamlit/secrets.toml`."
+            "Introduce tu API key de Gemini para esta sesión. "
+            "La clave NO se guarda de forma permanente y deberás introducirla cada vez que inicies la aplicación."
         )
         if "sidebar_gemini_api_value" not in st.session_state:
             st.session_state["sidebar_gemini_api_value"] = get_gemini_api_key_from_context()
@@ -48,11 +42,11 @@ def render_api_settings_panel() -> None:
         sidebar_model = st.text_input(
             "Modelo Gemini preferido",
             key="sidebar_gemini_model_value",
-            help="Ejemplo: gemini-2.5-flash o gemini-1.5-pro",
+            help="Ejemplo: gemini-3-flash-preview o gemini-1.5-pro",
         )
         if st.button("Guardar clave en esta sesión", key="sidebar_save_gemini"):
             cleaned_key = (sidebar_key or "").strip()
-            cleaned_model = (sidebar_model or "").strip() or "gemini-2.5-flash"
+            cleaned_model = (sidebar_model or "").strip() or "gemini-3-flash-preview"
             if cleaned_key:
                 st.session_state["gemini_api_key"] = cleaned_key
                 st.session_state["gemini_model_name"] = cleaned_model
