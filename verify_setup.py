@@ -20,7 +20,7 @@ def _verify_packages() -> bool:
     print(f"\n- Python: {sys.version.split()[0]}")
 
     # 2. Paquetes principales
-    packages = [
+    required_packages = [
         ("numpy", "NumPy"),
         ("scipy", "SciPy"),
         ("contourpy", "Contourpy"),
@@ -29,12 +29,15 @@ def _verify_packages() -> bool:
         ("sentence_transformers", "Sentence Transformers"),
         ("spacy", "spaCy"),
         ("thinc", "Thinc"),
+    ]
+
+    optional_packages = [
         ("coreferee", "Coreferee"),
     ]
 
     print("\n- PAQUETES INSTALADOS:")
     all_ok = True
-    for module_name, display_name in packages:
+    for module_name, display_name in required_packages:
         try:
             mod = __import__(module_name)
             version = getattr(mod, "__version__", "unknown")
@@ -42,6 +45,18 @@ def _verify_packages() -> bool:
         except ImportError:
             print(f"  ERR {display_name:25s} NO INSTALADO")
             all_ok = False
+
+    for module_name, display_name in optional_packages:
+        try:
+            mod = __import__(module_name)
+            version = getattr(mod, "__version__", "unknown")
+            print(f"  OK  {display_name:25s} {version} (opcional)")
+        except ImportError:
+            print(f"  INFO {display_name:24s} NO INSTALADO (opcional)")
+
+    if sys.version_info >= (3, 12):
+        print("  INFO Coreferee puede fallar en Python 3.12+ por dependencias antiguas de spaCy/thinc.")
+        print("       Recomendado: usar Python 3.11 en un entorno virtual separado para coreferencia.")
     return all_ok
 
 

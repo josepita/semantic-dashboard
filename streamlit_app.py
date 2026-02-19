@@ -82,7 +82,7 @@ from shared.config import ENTITY_PROFILE_PRESETS  # noqa: E402
 st.set_page_config(
     page_title="Embedding Insights Dashboard",
     layout="wide",
-    page_icon="ðŸ“ˆ",
+    page_icon=":bar_chart:",
 )
 
 sns.set_theme(style="whitegrid")
@@ -94,7 +94,7 @@ def main():
     init_license_check()
 
     apply_global_styles()
-    st.title("ðŸ"ˆ Embedding Insights Dashboard")
+    st.title("Embedding Insights Dashboard")
     st.markdown(
         "Sube tus datos de embeddings para descubrir similitudes entre URLs, agruparlas en clusters "
         "y analizar la relevancia frente a palabras clave."
