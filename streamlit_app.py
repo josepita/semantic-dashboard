@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Optional, TYPE_CHECKING
 
 import seaborn as sns
@@ -54,6 +53,7 @@ from app_sections.landing_page import (
     render_landing_view,
     render_sidebar_navigation,
 )
+from shared.env_utils import bootstrap_api_session_state
 from shared.license_ui import (
     init_license_check,
     render_license_status_sidebar,
@@ -90,22 +90,18 @@ sns.set_theme(style="whitegrid")
 
 
 def main():
+    bootstrap_api_session_state()
+
     # Inicializar verificación de licencia
     init_license_check()
 
     apply_global_styles()
-    st.title("ðŸ"ˆ Embedding Insights Dashboard")
+    st.title("📈 Embedding Insights Dashboard")
     st.markdown(
         "Sube tus datos de embeddings para descubrir similitudes entre URLs, agruparlas en clusters "
         "y analizar la relevancia frente a palabras clave."
     )
 
-    if "gemini_api_key" not in st.session_state:
-        st.session_state["gemini_api_key"] = (
-            os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or ""
-        )
-    if "gemini_model_name" not in st.session_state:
-        st.session_state["gemini_model_name"] = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
     if "entity_payload_by_url" not in st.session_state:
         st.session_state["entity_payload_by_url"] = None
     if "processed_df" not in st.session_state:

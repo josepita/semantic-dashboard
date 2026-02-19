@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import os
 import re
 import textwrap
 import time
@@ -27,6 +26,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 #     run_authority_gap_simulation,
 # )
 # from app_sections.google_kg import ensure_google_kg_api_key, query_google_enterprise_kg
+from shared.env_utils import get_session_or_env
 
 DEFAULT_SENTENCE_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 
@@ -523,7 +523,7 @@ def _render_kg_manual_tab() -> None:
 
     manual_google_api_key = st.text_input(
         "API key de Google Enterprise KG (standalone)",
-        value=st.session_state.get("google_kg_api_key", os.environ.get("GOOGLE_EKG_API_KEY", "")),
+        value=get_session_or_env(st.session_state, "google_kg_api_key", ("GOOGLE_EKG_API_KEY",)),
         type="password",
         key="google_kg_manual_api_key",
         help="Define la clave aqui o mediante la variable de entorno GOOGLE_EKG_API_KEY.",

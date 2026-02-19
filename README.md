@@ -1,6 +1,6 @@
 # Embedding Insights Dashboard
 
-Interactive Streamlit dashboard to explore page embeddings, compute similarity matrices, perform clustering, and analyse keyword relevance using OpenAI embeddings.
+Suite SEO con apps de Streamlit para embeddings, clustering, enlazado interno, fan-out analysis e informes.
 
 ## Features
 - Upload Excel files containing pre-generated page embeddings.
@@ -12,26 +12,71 @@ Interactive Streamlit dashboard to explore page embeddings, compute similarity m
 - Build knowledge graphs from textual columns (spaCy NER + relation hints) and explore entities/relations in an interactive network.
 - Upload keyword lists, fetch OpenAI embeddings, and rank relevant pages; download reports.
 
-## Running Locally
+## Requisitos
+- Python 3.10+ (recomendado 3.11)
+- `pip`
+
+## Inicialización del proyecto
+1. Clona el repositorio y entra en la carpeta:
 ```bash
-pip install -r requirements.txt
-streamlit run streamlit_app.py
+git clone <repo-url>
+cd semantic-dashboard
 ```
-If you plan to use the knowledge-graph module, install the spaCy model you need (examples):
+
+2. Crea y activa el entorno virtual:
+
+Linux / macOS:
 ```bash
-python -m spacy download es_core_news_sm   # Spanish
-python -m spacy download en_core_web_sm    # English
+python3 -m venv .venv
+source .venv/bin/activate
 ```
-## Instalar localmente 
-cd C:\Users\jdiaz\Desktop\EmbeddingDashboard
+
+Windows (PowerShell):
+```powershell
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\Activate.ps1
+```
+
+3. Instala dependencias:
+```bash
 pip install -r requirements.txt
+```
+
+4. Configura variables de entorno:
+```bash
+cp .env.example .env
+```
+Después edita `.env` y completa tus keys (`OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.).
+
+5. (Opcional) Verifica el entorno:
+```bash
+python verify_setup.py
+```
+
+## Ejecutar la aplicación principal
+```bash
 streamlit run streamlit_app.py
+```
 
+## Ejecutar apps standalone
+```bash
+streamlit run apps/content_analyzer/app.py
+streamlit run apps/gsc_insights/app.py
+streamlit run apps/linking_optimizer/app.py
+streamlit run apps/fanout_analyzer/app.py
+streamlit run apps/brief_generator/app.py
+```
 
+## Ejecutar API (FastAPI)
+```bash
+uvicorn api.app:app --host 0.0.0.0 --port 8001 --reload
+```
 
-Set the environment variable `OPENAI_API_KEY` or provide the key via the UI for keyword relevance.
+## spaCy (opcional, para módulos de grafo/NER)
+```bash
+python -m spacy download es_core_news_sm
+python -m spacy download en_core_web_sm
+```
 
 ## Deployment Notes
 - Configure `STREAMLIT_SERVER_HEADLESS=true` for server deployments.

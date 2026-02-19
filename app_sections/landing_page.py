@@ -1,27 +1,30 @@
 from __future__ import annotations
 
-import os
 import streamlit as st
+
+from shared.env_utils import bootstrap_api_session_state, get_env_value
 
 
 def get_gemini_api_key_from_context() -> str:
-    """Obtiene la API key solo desde session_state (sin persistencia)."""
+    """Obtiene la API key desde session_state y, como fallback, desde `.env`."""
     key = st.session_state.get("gemini_api_key")
     if key:
         return key.strip()
-    return ""
+    return get_env_value("GEMINI_API_KEY", "GOOGLE_API_KEY")
 
 
 def get_gemini_model_from_context(default: str = "gemini-3-flash-preview") -> str:
     candidate = (
         st.session_state.get("gemini_model_name")
-        or os.environ.get("GEMINI_MODEL")
+        or get_env_value("GEMINI_MODEL")
         or default
     )
     return candidate.strip()
 
 
 def render_api_settings_panel() -> None:
+    bootstrap_api_session_state()
+
     with st.sidebar:
         st.markdown("### ⚙️ Configuración de Gemini")
         st.caption(

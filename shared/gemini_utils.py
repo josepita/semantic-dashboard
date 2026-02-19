@@ -5,9 +5,13 @@ Este módulo centraliza todas las funciones relacionadas con la API de Gemini
 que se usan en múltiples módulos de las aplicaciones.
 """
 
-import os
 import streamlit as st
 from typing import Optional
+
+try:
+    from shared.env_utils import bootstrap_api_session_state, get_env_value
+except ModuleNotFoundError:
+    from env_utils import bootstrap_api_session_state, get_env_value
 
 
 def get_gemini_api_key() -> str:
@@ -19,6 +23,7 @@ def get_gemini_api_key() -> str:
     Busca en orden:
     1. st.session_state["gemini_api_key"]
     2. st.session_state["positions_gemini_key"]
+    3. Variables de entorno GEMINI_API_KEY / GOOGLE_API_KEY
 
     Returns:
         API key de Gemini o string vacío si no se encuentra
@@ -32,7 +37,7 @@ def get_gemini_api_key() -> str:
         if candidate:
             return candidate.strip()
 
-    return ""
+    return get_env_value("GEMINI_API_KEY", "GOOGLE_API_KEY")
 
 
 def get_gemini_model(default: str = "gemini-3-flash-preview") -> str:
@@ -56,7 +61,7 @@ def get_gemini_model(default: str = "gemini-3-flash-preview") -> str:
         st.session_state.get("gemini_model_name")
         or st.session_state.get("gemini_model")
         or st.session_state.get("positions_gemini_model")
-        or os.environ.get("GEMINI_MODEL")
+        or get_env_value("GEMINI_MODEL")
         or default
     )
     
@@ -138,6 +143,8 @@ def render_gemini_config_ui(key_prefix: str = "") -> tuple[str, str]:
     Returns:
         Tupla (api_key, model_name)
     """
+    bootstrap_api_session_state()
+
     st.markdown("### 🤖 Configuración de Gemini AI")
     
     col1, col2 = st.columns(2)

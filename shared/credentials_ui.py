@@ -18,6 +18,11 @@ import streamlit as st
 from typing import Optional, Dict, List
 import logging
 
+try:
+    from shared.env_utils import get_env_value
+except ModuleNotFoundError:
+    from env_utils import get_env_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -118,6 +123,11 @@ def render_api_keys_config(oauth_manager):
         )
 
         service_info = services[service]
+        current_api_key = ""
+        if oauth_manager:
+            current_api_key = oauth_manager.load_api_key(service, service_info["env"]) or ""
+        if not current_api_key:
+            current_api_key = get_env_value(service_info["env"])
 
         # Mostrar info del servicio
         col1, col2 = st.columns([3, 1])
@@ -126,6 +136,7 @@ def render_api_keys_config(oauth_manager):
             api_key = st.text_input(
                 f"API Key de {service_info['label']}:",
                 type="password",
+                value=current_api_key,
                 placeholder=service_info['placeholder'],
                 help=service_info['help']
             )
@@ -409,8 +420,18 @@ def render_quick_api_key_input(oauth_manager, service: str, label: str = None):
     if not label:
         label = f"{service.capitalize()} API Key"
 
-    # Intentar cargar del proyecto
-    existing_key = oauth_manager.load_api_key(service) if oauth_manager else None
+    env_by_service = {
+        "openai": "OPENAI_API_KEY",
+        "gemini": "GEMINI_API_KEY",
+        "anthropic": "ANTHROPIC_API_KEY",
+        "serprobot": "SERPROBOT_API_KEY",
+    }
+    fallback_env = env_by_service.get((service or "").lower())
+
+    # Intentar cargar del proyecto y luego desde .env
+    existing_key = (
+        oauth_manager.load_api_key(service, fallback_env) if oauth_manager else get_env_value(*(fallback_env,) if fallback_env else ())
+    )
 
     if existing_key:
         st.success(f"✅ {label} configurada en el proyecto")
@@ -422,6 +443,7 @@ def render_quick_api_key_input(oauth_manager, service: str, label: str = None):
     api_key = st.text_input(
         f"Ingresa tu {label}:",
         type="password",
+        value=get_env_value(*(fallback_env,) if fallback_env else ()),
         key=f"quick_input_{service}"
     )
 

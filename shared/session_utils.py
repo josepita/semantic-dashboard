@@ -8,6 +8,11 @@ con st.session_state, evitando KeyErrors y mejorando la consistencia.
 import streamlit as st
 from typing import Any, Optional, Dict, List
 
+try:
+    from shared.env_utils import get_env_value
+except ModuleNotFoundError:
+    from env_utils import get_env_value
+
 
 def get_session_value(key: str, default: Any = None) -> Any:
     """
@@ -176,6 +181,16 @@ def get_api_key(service: str) -> Optional[str]:
         value = get_session_value(key)
         if value:
             return value
+
+    env_by_service = {
+        "openai": ("OPENAI_API_KEY",),
+        "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        "anthropic": ("ANTHROPIC_API_KEY",),
+        "serprobot": ("SERPROBOT_API_KEY",),
+    }
+    env_value = get_env_value(*env_by_service.get(service.lower(), ()))
+    if env_value:
+        return env_value
     
     return None
 

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 import math
-import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -42,6 +41,7 @@ from modules.semantic_tools import (
     keyword_relevance,
     parse_line_input,
 )
+from shared.env_utils import get_env_value, get_session_or_env
 
 # Constants that need to be imported or defined
 ENTITY_PROFILE_PRESETS: Dict[str, List[str]] = {
@@ -431,7 +431,7 @@ def ensure_openai_key(input_key: str) -> str:
     """Ensure OpenAI API key is available."""
     if input_key:
         return input_key.strip()
-    env_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    env_key = get_env_value("OPENAI_API_KEY")
     if env_key:
         return env_key
     raise ValueError("No se proporcionó la clave de OpenAI. Ingrésala en el campo de texto o establece la variable OPENAI_API_KEY.")
@@ -714,7 +714,13 @@ def render_csv_workflow():
     st.divider()
     st.subheader("4️⃣ Relevancia de palabras clave (OpenAI)")
     st.caption("Cruza tus keywords con embeddings para determinar qué URLs son más relevantes por query (requiere `OPENAI_API_KEY`).")
-    api_key_input = st.text_input("OpenAI API Key", type="password", value=os.environ.get("OPENAI_API_KEY", ""))
+    api_key_input = st.text_input(
+        "OpenAI API Key",
+        type="password",
+        value=get_session_or_env(st.session_state, "openai_api_key", ("OPENAI_API_KEY",)),
+    )
+    if api_key_input:
+        st.session_state["openai_api_key"] = api_key_input.strip()
     keywords_file = st.file_uploader("Archivo Excel con palabras clave", type=["xlsx", "xls"], key="keywords_upload")
 
     if keywords_file:
@@ -1130,7 +1136,7 @@ def render_csv_workflow():
 
                 google_kg_api_key_input = st.text_input(
                     "API key de Google Enterprise KG",
-                    value=st.session_state.get("google_kg_api_key", ""),
+                    value=get_session_or_env(st.session_state, "google_kg_api_key", ("GOOGLE_EKG_API_KEY",)),
                     type="password",
                     help="Necesitas habilitar la Enterprise Knowledge Graph Search API en Google Cloud.",
                 )

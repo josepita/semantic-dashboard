@@ -39,6 +39,7 @@ if str(modules_path) not in sys.path:
 # Importar módulos
 from modules.csv_workflow import render_csv_workflow
 from app_sections.linking_lab import render_linking_lab
+from shared.env_utils import bootstrap_api_session_state
 
 # License management - TEMPORAL: licencias desactivadas
 # TODO: Restaurar verificación de licencias cuando esté listo
@@ -234,6 +235,8 @@ def main():
     # Verificar licencia - bloquea si no hay licencia válida o trial
     if not check_license_or_block():
         return  # No continuar si no hay licencia
+
+    bootstrap_api_session_state()
 
     apply_global_styles()
 

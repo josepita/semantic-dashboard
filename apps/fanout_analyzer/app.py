@@ -50,6 +50,7 @@ from modules.serp_extraction import (
     merge_serp_with_fanout,
     get_serp_summary,
 )
+from shared.env_utils import bootstrap_api_session_state, get_session_or_env
 
 # License management - TEMPORAL: licencias desactivadas
 # TODO: Restaurar verificación de licencias cuando esté listo
@@ -168,6 +169,8 @@ def main():
     if not check_license_or_block():
         return  # No continuar si no hay licencia
 
+    bootstrap_api_session_state()
+
     apply_global_styles()
 
     st.title("🔍 Fan-Out Query Analyzer")
@@ -252,7 +255,7 @@ def render_api_settings():
         st.subheader("Google Gemini")
         gemini_key = st.text_input(
             "API Key",
-            value=st.session_state.get("gemini_api_key", ""),
+            value=get_session_or_env(st.session_state, "gemini_api_key", ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
             type="password",
             key="fanout_gemini_key",
             help="https://aistudio.google.com/app/apikey",
@@ -674,6 +677,11 @@ def render_serp_extraction():
             with col1:
                 api_key = st.text_input(
                     "API Key",
+                    value=get_session_or_env(
+                        st.session_state,
+                        "fanout_serp_api_key",
+                        ("GOOGLE_CUSTOM_SEARCH_API_KEY", "GOOGLE_API_KEY"),
+                    ),
                     type="password",
                     key="serp_api_key",
                     help="Tu API Key de Google Cloud",
@@ -681,9 +689,19 @@ def render_serp_extraction():
             with col2:
                 cx = st.text_input(
                     "Search Engine ID (CX)",
+                    value=get_session_or_env(
+                        st.session_state,
+                        "fanout_serp_cx",
+                        ("GOOGLE_CUSTOM_SEARCH_CX", "GOOGLE_CSE_ID", "GOOGLE_SEARCH_ENGINE_ID"),
+                    ),
                     key="serp_cx",
                     help="El ID de tu Custom Search Engine (formato: xxx:yyy)",
                 )
+
+            if api_key:
+                st.session_state["fanout_serp_api_key"] = api_key.strip()
+            if cx:
+                st.session_state["fanout_serp_cx"] = cx.strip()
 
             if not api_key or not cx:
                 st.warning("⚠️ Introduce API Key y CX para usar este método")

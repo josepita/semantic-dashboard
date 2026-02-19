@@ -38,6 +38,7 @@ if str(modules_path) not in sys.path:
 # Importar módulos
 from app_sections.positions_report import render_positions_report
 from app_sections.landing_page import render_api_settings_panel
+from shared.env_utils import bootstrap_api_session_state
 
 # License management - TEMPORAL: licencias desactivadas
 # TODO: Restaurar verificación de licencias cuando esté listo
@@ -233,12 +234,7 @@ def main():
     if not check_license_or_block():
         return  # No continuar si no hay licencia
 
-    import os
-
-    if "gemini_api_key" not in st.session_state:
-        st.session_state["gemini_api_key"] = ""
-    if "gemini_model_name" not in st.session_state:
-        st.session_state["gemini_model_name"] = os.environ.get("GEMINI_MODEL") or "gemini-3-flash-preview"
+    bootstrap_api_session_state()
 
     apply_global_styles()
 

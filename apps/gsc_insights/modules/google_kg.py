@@ -9,15 +9,14 @@ from urllib.parse import urlencode
 
 import pandas as pd
 
+from shared.env_utils import get_env_value
+
 
 def ensure_google_kg_api_key(input_key: Optional[str] = None) -> str:
     candidate = (input_key or "").strip()
     if candidate:
         return candidate
-    env_key = ""
-    import os
-
-    env_key = os.environ.get("GOOGLE_EKG_API_KEY", "").strip()
+    env_key = get_env_value("GOOGLE_EKG_API_KEY")
     if env_key:
         return env_key
     raise ValueError(

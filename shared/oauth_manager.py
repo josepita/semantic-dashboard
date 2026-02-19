@@ -16,11 +16,14 @@ Versión: 1.0.0
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import logging
+try:
+    from shared.env_utils import get_env_value
+except ModuleNotFoundError:
+    from env_utils import get_env_value
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -361,7 +364,7 @@ class OAuthManager:
 
             # Fallback a variable de entorno
             if fallback_env:
-                env_value = os.environ.get(fallback_env)
+                env_value = get_env_value(fallback_env)
                 if env_value:
                     logger.info(f"API key de {service} cargada desde {fallback_env}")
                     return env_value
@@ -625,9 +628,12 @@ def render_api_key_config_ui(oauth_manager: OAuthManager) -> None:
                 format_func=lambda x: services[x]['label']
             )
 
+            current_api_key = oauth_manager.load_api_key(service, services[service]["env"]) or ""
+
             api_key = st.text_input(
                 "API Key:",
                 type="password",
+                value=current_api_key,
                 placeholder="sk-..."
             )
 

@@ -67,6 +67,7 @@ from modules.brief_ai import (
     generate_hn_structure,
     generate_full_brief,
 )
+from shared.env_utils import bootstrap_api_session_state
 
 # License management - TEMPORAL: licencias desactivadas
 # TODO: Restaurar verificación de licencias cuando esté listo
@@ -677,6 +678,8 @@ def render_brief_detail():
 
 def main():
     """Función principal de la aplicación."""
+    bootstrap_api_session_state()
+
     st.set_page_config(
         page_title="Brief Generator",
         page_icon="📋",

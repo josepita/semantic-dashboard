@@ -39,6 +39,7 @@ from modules.semantic_tools import render_semantic_toolkit_section
 from modules.keyword_builder import render_semantic_keyword_builder
 from modules.semantic_relations import render_semantic_relations
 from modules.content_plan import render_content_plan
+from shared.env_utils import bootstrap_api_session_state, get_session_or_env
 
 # License management - TEMPORAL: licencias desactivadas
 # TODO: Restaurar verificación de licencias cuando esté listo
@@ -238,6 +239,8 @@ def main():
     if not check_license_or_block():
         return  # No continuar si no hay licencia
 
+    bootstrap_api_session_state()
+
     apply_global_styles()
 
     # Título y descripción
@@ -330,7 +333,7 @@ def render_api_settings():
         st.subheader("OpenAI (GPT)")
         openai_key = st.text_input(
             "API Key",
-            value=st.session_state.get("openai_api_key", ""),
+            value=get_session_or_env(st.session_state, "openai_api_key", ("OPENAI_API_KEY",)),
             type="password",
             key="settings_openai_key",
             help="https://platform.openai.com/api-keys",
@@ -355,7 +358,7 @@ def render_api_settings():
         st.subheader("Google Gemini")
         gemini_key = st.text_input(
             "API Key",
-            value=st.session_state.get("gemini_api_key", ""),
+            value=get_session_or_env(st.session_state, "gemini_api_key", ("GEMINI_API_KEY", "GOOGLE_API_KEY")),
             type="password",
             key="settings_gemini_key",
             help="https://aistudio.google.com/app/apikey",
