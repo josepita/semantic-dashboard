@@ -142,3 +142,6 @@ SemanticKeyword/
 
 # Test files (local development only)
 test_*.py
+# Local agent/docs guidance files
+AGENTS.md
+CLAUUDE.md
